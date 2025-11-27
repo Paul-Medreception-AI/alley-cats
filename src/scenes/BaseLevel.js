@@ -1,6 +1,4 @@
 import Phaser from 'phaser';
-
-const EDITOR_ENABLED = typeof import.meta !== 'undefined' && import.meta.env?.VITE_EDITOR === 'true';
 export default class BaseLevel extends Phaser.Scene {
     constructor(key) {
         super(key);
@@ -65,10 +63,6 @@ export default class BaseLevel extends Phaser.Scene {
     }
 
     initEditor(width, height) {
-        if (!EDITOR_ENABLED) {
-            this.loadSavedLayout(width, height);
-            return;
-        }
         this.editorVisible = false;
         this.editorHandles = [];
         this.selectedPlatform = null;
