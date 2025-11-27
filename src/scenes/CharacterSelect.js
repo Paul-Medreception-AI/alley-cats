@@ -1,4 +1,3 @@
-import { ensureBackgroundMusic } from '../audioManager.js';
 import { addAudioToggle } from '../audioToggleUI.js';
 
 export default class CharacterSelect extends Phaser.Scene {
@@ -19,7 +18,6 @@ export default class CharacterSelect extends Phaser.Scene {
     }
 
     create() {
-        ensureBackgroundMusic(this);
         const { width, height } = this.cameras.main;
         addAudioToggle(this, { x: width - 90, y: 50 });
 

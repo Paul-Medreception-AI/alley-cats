@@ -1,4 +1,6 @@
 import Phaser from 'phaser';
+
+const EDITOR_ENABLED = typeof import.meta !== 'undefined' && import.meta.env?.VITE_EDITOR === 'true';
 export default class BaseLevel extends Phaser.Scene {
     constructor(key) {
         super(key);
@@ -39,8 +41,8 @@ export default class BaseLevel extends Phaser.Scene {
                         platData.y * height,
                         platData.width,
                         platData.height || 20,
-                        0xffffff,
-                        platData.visible ? 0.3 : 0
+                        0x000000,
+                        platData.visible ? 1 : 0
                     );
                     
                     this.physics.add.existing(plat, true);
@@ -63,6 +65,10 @@ export default class BaseLevel extends Phaser.Scene {
     }
 
     initEditor(width, height) {
+        if (!EDITOR_ENABLED) {
+            this.loadSavedLayout(width, height);
+            return;
+        }
         this.editorVisible = false;
         this.editorHandles = [];
         this.selectedPlatform = null;
@@ -409,7 +415,7 @@ export default class BaseLevel extends Phaser.Scene {
 
             const showPlatform = this.editorVisible ? true : isVisible;
             plat.setVisible(showPlatform);
-            plat.alpha = this.editorVisible ? (isVisible ? 0.3 : 0.12) : 1;
+            plat.fillAlpha = this.editorVisible ? (isVisible ? 0.6 : 0.2) : (isVisible ? 1 : 0);
             outline.setVisible(this.editorVisible);
             outline.alpha = isVisible ? 1 : 0.5;
             
@@ -441,8 +447,7 @@ export default class BaseLevel extends Phaser.Scene {
         };
         
         // Set up the click handler
-        toggleText.on('pointerdown', (e) => {
-            e.stopPropagation();
+        toggleText.on('pointerdown', () => {
             plat._isVisible = !plat._isVisible;
             updatePlatformVisibility();
         });
@@ -497,8 +502,8 @@ export default class BaseLevel extends Phaser.Scene {
             centerY,
             platformWidth,
             platformHeight,
-            0xffffff,
-            0.3
+            0x000000,
+            1
         );
         
         // Add physics

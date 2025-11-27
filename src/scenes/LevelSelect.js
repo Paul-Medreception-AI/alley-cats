@@ -1,4 +1,3 @@
-import { ensureBackgroundMusic } from '../audioManager.js';
 import { addAudioToggle } from '../audioToggleUI.js';
 
 export default class LevelSelect extends Phaser.Scene {
@@ -16,7 +15,6 @@ export default class LevelSelect extends Phaser.Scene {
     }
 
     create() {
-        ensureBackgroundMusic(this);
         const { width, height } = this.cameras.main;
         addAudioToggle(this, { x: width - 90, y: 50 });
         const background = this.add.image(width / 2, height / 2, 'levels-bg');

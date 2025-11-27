@@ -1,5 +1,4 @@
 import BaseLevel from './BaseLevel';
-import { ensureBackgroundMusic } from '../audioManager.js';
 import { addAudioToggle } from '../audioToggleUI.js';
 
 export default class AlleywayLevel extends BaseLevel {
@@ -22,6 +21,7 @@ export default class AlleywayLevel extends BaseLevel {
         this.scores = data?.scores || { host: 0, opponent: 0 };
         this.matchKey = data?.matchKey || null;
         this.falls = 0;
+        this.roundEnded = false;
     }
 
     preload() {
@@ -69,10 +69,8 @@ export default class AlleywayLevel extends BaseLevel {
         this.createHUD(width, height);
         this.createBackButton(width, height);
         this.setupWorld(width, height);
-        ensureBackgroundMusic(this, { key: 'alleycatBackgroundBeat', volume: 0.4 });
         addAudioToggle(this, { x: width - 90, y: 110 });
         this.initEditor(width, height);
-        this.setupEditorDebugging();
     }
 
     createAlignedBackgrounds(width, height) {
@@ -168,37 +166,30 @@ export default class AlleywayLevel extends BaseLevel {
     }
 
     createPlatforms(width, height) {
-        if (!this.platformDefs) {
-            this.platformDefs = this.loadSavedPlatforms() || [
-                { x: 0.25, y: 0.33, width: 140 },
-                { x: 0.35, y: 0.40, width: 160 },
-                { x: 0.48, y: 0.46, width: 150 },
-                { x: 0.60, y: 0.43, width: 120 },
-                { x: 0.72, y: 0.48, width: 190 },
-                { x: 0.85, y: 0.44, width: 90 },
-                { x: 0.90, y: 0.36, width: 110 },
-                { x: 0.64, y: 0.30, width: 100 },
-                { x: 0.78, y: 0.26, width: 130 },
-                { x: 0.55, y: 0.22, width: 90 },
-                { x: 0.70, y: 0.18, width: 120 },
-                { x: 0.86, y: 0.14, width: 150 },
-                { x: 0.42, y: 0.58, width: 150 }
-            ];
-        }
+        const defaults = [
+            { x: 0.25, y: 0.33, width: 140 },
+            { x: 0.35, y: 0.40, width: 160 },
+            { x: 0.48, y: 0.46, width: 150 },
+            { x: 0.60, y: 0.43, width: 120 },
+            { x: 0.72, y: 0.48, width: 190 },
+            { x: 0.85, y: 0.44, width: 90 },
+            { x: 0.90, y: 0.36, width: 110 },
+            { x: 0.64, y: 0.30, width: 100 },
+            { x: 0.78, y: 0.26, width: 130 },
+            { x: 0.55, y: 0.22, width: 90 },
+            { x: 0.70, y: 0.18, width: 120 },
+            { x: 0.86, y: 0.14, width: 150 },
+            { x: 0.42, y: 0.58, width: 150 }
+        ];
 
-        this.startPlatform = this.add.rectangle(width * 0.07, height * 0.22, 220, 30, 0xffffff, 0);
+        this.startPlatform = this.add.rectangle(width * 0.07, height * 0.22, 220, 30, 0x000000, 0);
         this.physics.add.existing(this.startPlatform, true);
         this.platforms.add(this.startPlatform);
 
-        this.platformDefs.forEach((line, index) => {
-            const isVisible = line.visible !== false;
-            const platHeight = line.height || 22;
-            const plat = this.add.rectangle(width * line.x, height * line.y, line.width, platHeight,
-                0x000000, isVisible ? 0.5 : 0)
-                .setVisible(isVisible);
-            plat.metaIndex = index;
+        defaults.forEach((line) => {
+            const plat = this.add.rectangle(width * line.x, height * line.y, line.width, line.height || 22,
+                0x000000, 1);
             this.physics.add.existing(plat, true);
-            plat.body.enable = isVisible;
             this.platforms.add(plat);
         });
     }
@@ -325,7 +316,9 @@ export default class AlleywayLevel extends BaseLevel {
                     joinCode: this.joinCode,
                     connectionType: this.isHost ? 'host' : 'join',
                     playerCount: this.playerCount,
-                    character: this.character
+                    character: this.character,
+                    round: 1,
+                    scores: { host: 0, opponent: 0 }
                 });
             });
         } else {
@@ -951,115 +944,9 @@ export default class AlleywayLevel extends BaseLevel {
         });
     }
 
-    exportPlatformData(viewWidth, viewHeight) {
-        const saveData = [];
-        this.platforms.children.iterate(plat => {
-            if (!plat || plat === this.startPlatform) return;
-            const width = plat.width ?? plat.displayWidth ?? 140;
-            const height = plat.height ?? plat.displayHeight ?? 22;
-            saveData.push({
-                x: Number((plat.x / viewWidth).toFixed(4)),
-                y: Number((plat.y / viewHeight).toFixed(4)),
-                width: Number(width.toFixed(1)),
-                height: Number(height.toFixed(1)),
-                visible: plat.visible !== false
-            });
-        });
-
-        const saveKey = `level_${this.scene.key}_layout`;
-        try {
-            window.localStorage.setItem(saveKey, JSON.stringify(saveData));
-            // Legacy key support for older builds
-            window.localStorage.setItem('alleyway-platforms', JSON.stringify(saveData));
-            console.log(`[Alleyway Editor] Saved ${saveData.length} platforms to ${saveKey}`);
-        } catch (err) {
-            console.warn('[Alleyway Editor] Failed to persist layout', err);
-        }
-
-        this.platformDefs = saveData;
-        return saveData;
-    }
-
-    loadSavedPlatforms() {
-        if (typeof window === 'undefined') return null;
-        const saveKey = `level_${this.scene.key}_layout`;
-        const raw = window.localStorage.getItem(saveKey) ?? window.localStorage.getItem('alleyway-platforms');
-        if (!raw) return null;
-
-        try {
-            const parsed = JSON.parse(raw);
-            if (!Array.isArray(parsed) || !parsed.length) {
-                return null;
-            }
-            return parsed.map(entry => ({
-                x: Number(entry.x),
-                y: Number(entry.y),
-                width: Number(entry.width ?? entry.w ?? 140),
-                height: Number(entry.height ?? 22),
-                visible: entry.visible !== false
-            }));
-        } catch (err) {
-            console.warn('[Alleyway Editor] Failed to parse saved layout', err);
-            return null;
-        }
-    }
+    // Layout persistence handled by BaseLevel.
 
     initEditor(width, height) {
-        super.initEditor(width, height);
-
-        if (this.editorNotice) {
-            this.editorNotice.setDepth(2000);
-            console.log('[Alleyway Editor] Notice position:', this.editorNotice.x, this.editorNotice.y);
-            console.log('[Alleyway Editor] Notice scene:', this.editorNotice.scene?.scene?.key);
-        }
-
-        if (this.saveButton) {
-            this.saveButton.setDepth(2000);
-            console.log('[Alleyway Editor] Save button position:', this.saveButton.x, this.saveButton.y);
-            console.log('[Alleyway Editor] Save button scene:', this.saveButton.scene?.scene?.key);
-        }
-
-        this.toggleEditorMode(true);
-        console.log('[Alleyway Editor] Editor forced visible for testing');
-    }
-
-    setupEditorDebugging() {
-        if (this.editorDebugSetup) return;
-        this.editorDebugSetup = true;
-
-        console.log('[Alleyway Editor] Setting up editor controls');
-
-        this.input.keyboard.on('keydown-E', (event) => {
-            if (event.ctrlKey || event.metaKey) return;
-
-            console.log('[Alleyway Editor] E key pressed, current visibility:', this.editorVisible);
-            console.log('[Alleyway Editor] Camera position:', this.cameras.main.scrollX, this.cameras.main.scrollY);
-            console.log('[Alleyway Editor] Viewport:', this.cameras.main.worldView);
-
-            this.time.delayedCall(0, () => {
-                console.log('[Alleyway Editor] Editor visibility toggled to:', this.editorVisible);
-
-                if (this.editorNotice) {
-                    console.log('[Alleyway Editor] Editor notice visible:', this.editorNotice.visible);
-                }
-
-                if (this.saveButton) {
-                    console.log('[Alleyway Editor] Save button visible:', this.saveButton.visible);
-                }
-
-                let handleCount = 0;
-                this.platforms.children.iterate(plat => {
-                    if (!plat || plat === this.startPlatform) return;
-
-                    if (plat.dragHandle?.resizeHandles) {
-                        plat.dragHandle.resizeHandles.forEach(handle => {
-                            if (handle?.visible) handleCount++;
-                        });
-                    }
-                });
-
-                console.log('[Alleyway Editor] Visible editor handles:', handleCount);
-            });
-        });
+        return super.initEditor(width, height);
     }
 }

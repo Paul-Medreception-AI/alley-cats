@@ -1,11 +1,13 @@
 import BaseLevel from './BaseLevel';
-import { ensureBackgroundMusic } from '../audioManager.js';
 import { addAudioToggle } from '../audioToggleUI.js';
 
 export default class RiverLevel extends BaseLevel {
     constructor() {
         super('RiverLevel');
         this.lightningActive = false;
+        this.totalRounds = 5;
+        this.round = 1;
+        this.scores = { host: 0, opponent: 0 };
     }
 
     init(data) {
@@ -15,6 +17,8 @@ export default class RiverLevel extends BaseLevel {
         this.playerCount = data?.playerCount || 1;
         this.falls = 0;
         this.roundEnded = false;
+        this.round = data?.round || 1;
+        this.scores = data?.scores || { host: 0, opponent: 0 };
     }
 
     preload() {
@@ -56,7 +60,6 @@ export default class RiverLevel extends BaseLevel {
         this.cameras.main.startFollow(this.player);
         this.cursors = this.input.keyboard.createCursorKeys();
         
-        ensureBackgroundMusic(this, { key: 'river-bgm', volume: 0.5 });
         addAudioToggle(this, { x: width - 90, y: 110 });
 
         // Initialize editor
@@ -65,7 +68,7 @@ export default class RiverLevel extends BaseLevel {
     }
 
     createPlatforms(width, height) {
-        const start = this.add.rectangle(120, height - 120, 200, 30, 0x1f3b4d, 0.8);
+        const start = this.add.rectangle(120, height - 120, 200, 30, 0x000000, 0);
         this.physics.add.existing(start, true);
         this.platforms.add(start);
 
@@ -79,7 +82,7 @@ export default class RiverLevel extends BaseLevel {
         ];
 
         pads.forEach(def => {
-            const platform = this.add.rectangle(def.x, def.y, def.w, 22, 0x102a35, 0.9);
+            const platform = this.add.rectangle(def.x, def.y, def.w, 22, 0x000000, 1);
             this.physics.add.existing(platform, true);
             this.platforms.add(platform);
         });
@@ -92,9 +95,9 @@ export default class RiverLevel extends BaseLevel {
             .setBounce(0.1)
             .setCollideWorldBounds(true);
         const bodyWidth = this.player.width * 0.4;
-        const bodyHeight = this.player.height * 0.6;
+        const bodyHeight = this.player.height * 0.5;
         this.player.body.setSize(bodyWidth, bodyHeight);
-        this.player.body.setOffset((this.player.width - bodyWidth) / 2, (this.player.height - bodyHeight) / 2);
+        this.player.body.setOffset((this.player.width - bodyWidth) / 2, this.player.height * 0.5);
         this.physics.add.collider(this.player, this.platforms);
     }
 
@@ -111,6 +114,13 @@ export default class RiverLevel extends BaseLevel {
     }
 
     createUI(width, height) {
+        this.roundText = this.add.text(16, 16, `Round ${this.round}/${this.totalRounds}`, {
+            fontSize: '20px',
+            fill: '#fff',
+            backgroundColor: 'rgba(0,0,0,0.6)',
+            padding: { x: 10, y: 6 }
+        }).setScrollFactor(0);
+
         this.statusText = this.add.text(width / 2, height - 40, 'Hop across the river!', {
             fontSize: '22px',
             fill: '#fff',
@@ -172,7 +182,7 @@ export default class RiverLevel extends BaseLevel {
             this.statusText.setText('The river wins this time.');
             this.player.setTint(0x555555);
             this.player.setVelocity(0, 0);
-            this.time.delayedCall(2000, () => this.returnToSelect());
+            this.time.delayedCall(2000, () => this.advanceRound(false));
         }
     }
 
@@ -180,7 +190,7 @@ export default class RiverLevel extends BaseLevel {
         if (this.roundEnded) return;
         this.roundEnded = true;
         this.statusText.setText('You reached the far bank!');
-        this.time.delayedCall(2000, () => this.returnToSelect());
+        this.time.delayedCall(2000, () => this.advanceRound(true));
     }
 
     returnToSelect() {
@@ -190,6 +200,36 @@ export default class RiverLevel extends BaseLevel {
             playerCount: this.playerCount,
             character: this.character
         });
+    }
+
+    advanceRound(didWin) {
+        if (didWin) {
+            this.scores.host = (this.scores.host || 0) + 1;
+        }
+
+        const nextRound = (this.round || 1) + 1;
+        if (nextRound > this.totalRounds) {
+            this.statusText.setText('River challenge finished! Returning...');
+            this.time.delayedCall(1500, () => {
+                this.scene.start('GameScene', {
+                    joinCode: this.joinCode,
+                    connectionType: this.connectionType,
+                    playerCount: this.playerCount,
+                    character: this.character,
+                    round: 1,
+                    scores: { host: 0, opponent: 0 }
+                });
+            });
+        } else {
+            this.scene.restart({
+                joinCode: this.joinCode,
+                connectionType: this.connectionType,
+                playerCount: this.playerCount,
+                character: this.character,
+                round: nextRound,
+                scores: this.scores
+            });
+        }
     }
 
     getCharacterTexture(character) {
@@ -203,49 +243,7 @@ export default class RiverLevel extends BaseLevel {
         }
     }
 
-    // Editor functionality
-    initEditor(width, height) {
-        this.editorVisible = false;
-        this.editorHandles = [];
-        this.selectedPlatform = null;
-        
-        // Preload arrow sprite
-        this.load.spritesheet('arrow', 'assets/images/arrow.png', { frameWidth: 16, frameHeight: 16 });
-        
-        // Create editor UI elements
-        this.editorNotice = this.add.text(width - 20, 20, 'EDITOR MODE', { 
-            fontSize: '24px', 
-            fill: '#ff0000',
-            fontStyle: 'bold',
-            stroke: '#000000',
-            strokeThickness: 4
-        }).setOrigin(1, 0).setVisible(false);
-        
-        // Create save button
-        this.saveButton = this.add.text(width - 20, 60, 'SAVE LAYOUT (D)', { 
-            fontSize: '20px',
-            fill: '#00ff00',
-            backgroundColor: '#00000080',
-            padding: { x: 10, y: 5 }
-        })
-        .setOrigin(1, 0)
-        .setVisible(false)
-        .setInteractive({ useHandCursor: true })
-        .on('pointerdown', () => this.exportPlatformData(width, height));
-
-        // Setup keyboard controls
-        this.setupEditorControls();
-        
-        const loaded = this.loadSavedLayout(width, height);
-
-        // Create drag handles for each platform
-        this.platforms.children.iterate(plat => {
-            if (!plat || plat === this.startPlatform) return;
-            this.createEditorHandles(plat);
-        });
-    }
-
-    createEditorHandles(plat) {
+    legacyCreateEditorHandles(plat) {
         // Create drag handle
         const dragHandle = this.add.rectangle(
             plat.x, 
@@ -518,7 +516,7 @@ export default class RiverLevel extends BaseLevel {
         });
     }
 
-    loadSavedLayout(width, height) {
+    legacyLoadSavedLayout(width, height) {
         if (typeof window === 'undefined') return false;
         const saveKey = `level_${this.scene.key}_layout`;
         const raw = window.localStorage.getItem(saveKey);
@@ -568,7 +566,7 @@ export default class RiverLevel extends BaseLevel {
         return true;
     }
 
-    setupEditorControls() {
+    legacySetupEditorControls() {
         // Toggle editor mode with E key
         this.input.keyboard.on('keydown-E', (event) => {
             if (event.ctrlKey || event.metaKey) return;
@@ -673,7 +671,7 @@ export default class RiverLevel extends BaseLevel {
         });
     }
 
-    exportPlatformData(viewWidth, viewHeight) {
+    legacyExportPlatformData(viewWidth, viewHeight) {
         const result = [];
         this.platforms.children.iterate((plat) => {
             if (!plat || plat === this.startPlatform) return;

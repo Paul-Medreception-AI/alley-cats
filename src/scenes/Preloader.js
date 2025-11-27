@@ -44,6 +44,7 @@ export default class Preloader extends Phaser.Scene {
         // UI
         this.load.image('toggle-on', 'assets/images/ToggleOn.png');
         this.load.image('toggle-off', 'assets/images/toggleOff.png');
+        this.load.image('lock-overlay', 'assets/images/lockNoBackground.png');
 
         this.load.on('complete', () => {
             progress.destroy();

@@ -1,4 +1,3 @@
-import { ensureBackgroundMusic } from '../audioManager.js';
 import { addAudioToggle } from '../audioToggleUI.js';
 
 const MATCH_KEY_PREFIX = 'alleycats:match:';
@@ -33,7 +32,6 @@ export default class GameScene extends Phaser.Scene {
     }
 
     create() {
-        ensureBackgroundMusic(this);
         const { width, height } = this.scale;
         addAudioToggle(this, { x: width - 120, y: 60 });
         const bg = this.add.image(width / 2, height / 2, 'levels-bg');
@@ -57,9 +55,9 @@ export default class GameScene extends Phaser.Scene {
 
         // adjust body size for better collisions
         const bodyWidth = this.player.width * 0.4;
-        const bodyHeight = this.player.height * 0.6;
+        const bodyHeight = this.player.height * 0.5;
         this.player.body.setSize(bodyWidth, bodyHeight);
-        this.player.body.setOffset((this.player.width - bodyWidth) / 2, (this.player.height - bodyHeight) / 2);
+        this.player.body.setOffset((this.player.width - bodyWidth) / 2, this.player.height * 0.5);
 
         this.cursors = this.input.keyboard.createCursorKeys();
 
@@ -201,26 +199,45 @@ export default class GameScene extends Phaser.Scene {
         const baseY = height - 110;
         const rowSpacing = 60;
 
+        const unlockedLevels = new Set(['alleyway', 'cave', 'river']);
+
         platformData.forEach((level) => {
             const x = level.xPercent * width;
             const y = baseY - (level.row || 0) * rowSpacing - (level.yOffset || 0);
-            const block = this.add.rectangle(x, y - 10, 140, 20, 0x000000, 0.5).setOrigin(0.5);
+            const locked = !unlockedLevels.has(level.key);
+            const block = this.add.rectangle(x, y - 10, 140, 20, locked ? 0x555555 : 0x000000, locked ? 0.4 : 0.6).setOrigin(0.5);
             this.physics.add.existing(block, true);
-            this.levelBlocks.push({ block, data: level });
+            const entry = { ...level, locked };
+            this.levelBlocks.push({ block, data: entry });
+
+            if (locked) {
+                const icon = this.add.image(x, y - 10, 'lock-overlay').setOrigin(0.5).setScale(0.5);
+                icon.setDepth(5);
+                block.lockIcon = icon;
+            }
 
             this.physics.add.collider(this.player, block, () => {
-                this.handleLevelLanding(level, block);
+                if (entry.locked) {
+                    this.statusText.setText(`${entry.label} is coming soon.`);
+                    return;
+                }
+                this.handleLevelLanding(entry, block);
             });
         });
     }
 
     handleLevelLanding(level, block) {
-        if (!this.isHost) return;
+        if (!this.isHost || level.locked) {
+            if (level.locked) {
+                this.statusText.setText(`${level.label} is coming soon.`);
+            }
+            return;
+        }
 
         const isSamePlatform = this.activePlatform?.block === block;
 
         if (!isSamePlatform) {
-            this.levelBlocks.forEach(({ block: rect }) => rect.setFillStyle(0x000000, 0.5));
+            this.levelBlocks.forEach(({ block: rect, data }) => rect.setFillStyle(data.locked ? 0x555555 : 0x000000, data.locked ? 0.4 : 0.6));
             block.setFillStyle(0x23c55e, 0.9);
             this.activePlatform = { level, block };
             this.selectedLevel = level;
@@ -339,7 +356,7 @@ export default class GameScene extends Phaser.Scene {
     }
 
     resetPlatformSelection() {
-        this.levelBlocks.forEach(({ block }) => block.setFillStyle(0xffffff, 0.25));
+        this.levelBlocks.forEach(({ block, data }) => block.setFillStyle(data.locked ? 0x555555 : 0x000000, data.locked ? 0.4 : 0.6));
         this.activePlatform = null;
         this.selectedLevel = null;
         this.statusText.setText('Hop onto a platform to select a level.');

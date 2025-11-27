@@ -1,5 +1,4 @@
 import BaseLevel from './BaseLevel';
-import { ensureBackgroundMusic } from '../audioManager.js';
 import { addAudioToggle } from '../audioToggleUI.js';
 
 export default class CaveLevel extends BaseLevel {
@@ -7,7 +6,7 @@ export default class CaveLevel extends BaseLevel {
         super('CaveLevel');
         this.backgrounds = [];
         this.currentBackgroundIndex = 0;
-        this.totalRounds = 10;
+        this.totalRounds = 5;
     }
 
     init(data) {
@@ -47,7 +46,6 @@ export default class CaveLevel extends BaseLevel {
         this.createHoneyZone(width, height);
         this.createEndZone(width, height);
         this.createBackButton(width, height);
-        ensureBackgroundMusic(this, { key: 'cave-bgm', volume: 0.5 });
         addAudioToggle(this, { x: width - 90, y: 110 });
         this.saveMatchState();
 
@@ -112,9 +110,9 @@ export default class CaveLevel extends BaseLevel {
         this.player.setCollideWorldBounds(true);
         this.player.setBounce(0.05);
         const bodyWidth = this.player.width * 0.4;
-        const bodyHeight = this.player.height * 0.6;
+        const bodyHeight = this.player.height * 0.5;
         this.player.body.setSize(bodyWidth, bodyHeight);
-        this.player.body.setOffset((this.player.width - bodyWidth) / 2, (this.player.height - bodyHeight) / 2);
+        this.player.body.setOffset((this.player.width - bodyWidth) / 2, this.player.height * 0.5);
 
         this.physics.add.collider(this.player, this.platforms);
 
@@ -256,10 +254,16 @@ export default class CaveLevel extends BaseLevel {
             fill: '#fff'
         }).setOrigin(0.5);
 
-        this.add.text(this.scale.width / 2, this.scale.height / 2 + 120, 'Press BACK to exit', {
-            fontSize: '20px',
-            fill: '#fff'
-        }).setOrigin(0.5);
+        this.time.delayedCall(2000, () => {
+            this.scene.start('GameScene', {
+                joinCode: this.joinCode,
+                connectionType: this.connectionType,
+                playerCount: this.playerCount,
+                character: this.character,
+                round: 1,
+                scores: { host: 0, opponent: 0 }
+            });
+        });
         this.clearMatchState();
     }
 

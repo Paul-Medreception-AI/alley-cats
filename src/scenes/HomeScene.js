@@ -13,9 +13,10 @@ export default class HomeScene extends Phaser.Scene {
     }
 
     create() {
-        ensureBackgroundMusic(this);
+        const musicOpts = { key: 'alleycatBackgroundBeat', volume: 0.4 };
+        ensureBackgroundMusic(this, musicOpts);
         const { width, height } = this.cameras.main;
-        addAudioToggle(this);
+        addAudioToggle(this, { musicOptions: musicOpts });
         
         // Set background color
         this.cameras.main.setBackgroundColor('#f0f8ff');
@@ -64,13 +65,31 @@ export default class HomeScene extends Phaser.Scene {
         });
 
         // Add play button
-        const playButton = this.add.text(width / 2, height - 100, 'PLAY', {
+        const playButton = this.add.text(width / 2, height - 150, 'PLAY', {
             fontSize: '32px',
             fill: '#fff',
             backgroundColor: '#4cc9f0',
             padding: { x: 30, y: 15 },
             borderRadius: 5
         }).setOrigin(0.5).setInteractive();
+
+        // Add controls information near bottom of screen
+        this.add.text(width / 2, height - 60, 'CONTROLS', {
+            fontSize: '20px',
+            fill: '#4cc9f0',
+            fontStyle: 'bold',
+            stroke: '#fff',
+            strokeThickness: 1
+        }).setOrigin(0.5);
+
+        this.add.text(width / 2, height - 30, '← → : Move   ↑ or SPACE : Jump', {
+            fontSize: '18px',
+            fill: '#fff',
+            fontStyle: 'bold',
+            backgroundColor: 'rgba(0,0,0,0.5)',
+            padding: { x: 15, y: 6 },
+            borderRadius: 5
+        }).setOrigin(0.5);
 
         // Button hover effects
         playButton.on('pointerover', () => {
@@ -107,6 +126,13 @@ export default class HomeScene extends Phaser.Scene {
                 this.scene.start('GameModeSelect');
             });
         });
+
+        // Add version number
+        this.add.text(width - 20, height - 20, 'Version: Beta', {
+            fontSize: '14px',
+            fill: '#4cc9f0',
+            fontStyle: 'italic'
+        }).setOrigin(1, 1);
 
         // Fade in effect
         this.cameras.main.fadeIn(500, 0, 0, 0);
