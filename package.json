@@ -1,0 +1,21 @@
+{
+  "name": "alley-cats",
+  "version": "1.0.0",
+  "description": "Alley Cats - A 2D platformer game",
+  "main": "src/game.js",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "keywords": ["game", "phaser", "2d", "platformer"],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "phaser": "^3.60.0"
+  },
+  "devDependencies": {
+    "vite": "^4.5.0"
+  }
+}
