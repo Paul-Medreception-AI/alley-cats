@@ -1,6 +1,30 @@
 import BaseLevel from './BaseLevel';
 import { addAudioToggle } from '../audioToggleUI.js';
 
+const CAVE_DEFAULT_LAYOUT = [
+    { x: 0.09416666666666666, y: 0.35285714285714287, width: 271.97239329789784, height: 14, visible: false },
+    { x: 0.3175, y: 0.18, width: 83.95629728535363, height: 23.823848583300652, visible: true },
+    { x: 0.565, y: 0.6571428571428571, width: 123.25474539548725, height: 31.55310462003132, visible: true },
+    { x: 0.2325, y: 0.45714285714285713, width: 64.64059893491373, height: 58.46410046478866, visible: false },
+    { x: 0.3441666666666667, y: 0.44571428571428573, width: 126.72991504147097, height: 12, visible: true },
+    { x: 0.6433333333333333, y: 0.477049898383188, width: 86.71075412390041, height: 24.130142263536754, visible: true },
+    { x: 0.41333333333333333, y: 0.3157142857142857, width: 110.53478903755286, height: 20, visible: true },
+    { x: 0.5058333333333334, y: 0.7985714285714286, width: 103.9735475256598, height: 20, visible: true },
+    { x: 0.7583333333333333, y: 0.32571428571428573, width: 113.79399196786642, height: 23.097606697652566, visible: true },
+    { x: 0.6375, y: 0.32142857142857145, width: 49.92190594407321, height: 31.357891224726103, visible: true },
+    { x: 0.4225, y: 0.6157142857142858, width: 82.01554173268342, height: 20.516267782942123, visible: true },
+    { x: 0.525, y: 0.5114285714285715, width: 65.43991271586896, height: 26.2050023949057, visible: true },
+    { x: 0.8925, y: 0.9085714285714286, width: 304.542837043825, height: 20, visible: true }
+];
+
+const CAVE_DEFAULT_SPAWNS = [
+    { x: 0.07097948997705548, y: 0.12259055592443543 },
+    { x: 0.05397738442217908, y: 0.12111550511602945 },
+    { x: 0.09519839355755172, y: 0.1307033353706684 },
+    { x: 0.03808703121605931, y: 0.1292282845622624 },
+    { x: 0.11467319149662022, y: 0.13439096239168336 }
+];
+
 export default class CaveLevel extends BaseLevel {
     constructor() {
         super('CaveLevel');
@@ -78,27 +102,24 @@ export default class CaveLevel extends BaseLevel {
     }
 
     createPlatforms(width, height) {
-        const startX = 150;
-        const startY = height - 150;
-        const platformDefs = [
-            { x: startX, y: startY + 40, width: 120, height: 18 },
-            { x: width * 0.35, y: height * 0.65, width: 140, height: 14 },
-            { x: width * 0.5, y: height * 0.62, width: 100, height: 14 },
-            { x: width * 0.65, y: height * 0.58, width: 160, height: 14 },
-            { x: width * 0.45, y: height * 0.5, width: 90, height: 12 },
-            { x: width * 0.62, y: height * 0.46, width: 120, height: 12 },
-            { x: width * 0.78, y: height * 0.42, width: 110, height: 12 },
-            { x: width * 0.55, y: height * 0.38, width: 80, height: 10 },
-            { x: width * 0.7, y: height * 0.33, width: 90, height: 10 },
-            { x: width * 0.85, y: height * 0.28, width: 120, height: 10 }
-        ];
+        const startX = width * 0.08;
+        const startY = height * 0.2;
+        const start = this.add.rectangle(startX, startY, 220, 30, 0x000000, 0);
+        this.physics.add.existing(start, true);
+        this.platforms.add(start);
+        this.startPlatform = start;
+        this.disableStartPlatformCollision(this.startPlatform);
 
-        platformDefs.forEach(def => {
-            const platform = this.add.rectangle(def.x, def.y, def.width, def.height, 0xffffff, 0);
+        CAVE_DEFAULT_LAYOUT.forEach(def => {
+            const platWidth = def.width ?? 120;
+            const platHeight = def.height ?? 20;
+            const platX = def.x <= 1 ? def.x * width : def.x;
+            const platY = def.y <= 1 ? def.y * height : def.y;
+            const isVisible = def.visible !== false;
+            const platform = this.add.rectangle(platX, platY, platWidth, platHeight, 0x000000, isVisible ? 1 : 0);
             this.physics.add.existing(platform, true);
-            platform.body.checkCollision.down = false;
-            platform.body.checkCollision.left = false;
-            platform.body.checkCollision.right = false;
+            platform._isVisible = isVisible;
+            platform.setVisible(isVisible);
             this.platforms.add(platform);
         });
     }
@@ -265,6 +286,10 @@ export default class CaveLevel extends BaseLevel {
             });
         });
         this.clearMatchState();
+    }
+
+    createDefaultSpawnPoints() {
+        return CAVE_DEFAULT_SPAWNS.map(sp => ({ ...sp }));
     }
 
     getCharacterTexture(character) {

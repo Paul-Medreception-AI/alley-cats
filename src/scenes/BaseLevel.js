@@ -7,6 +7,7 @@ export default class BaseLevel extends Phaser.Scene {
         this.sceneWidth = 0;
         this.sceneHeight = 0;
         this.spawnSaveKey = '';
+        this.spawnDropOffset = 60;
     }
 
     // Common editor functionality for all levels
@@ -499,6 +500,7 @@ export default class BaseLevel extends Phaser.Scene {
             0x000000,
             1
         );
+        plat.fillAlpha = 1;
         
         // Add physics
         this.physics.add.existing(plat, true);
@@ -517,7 +519,7 @@ export default class BaseLevel extends Phaser.Scene {
             duration: 500,
             ease: 'Power1',
             onComplete: () => {
-                plat.fillAlpha = 0.3; // Reset alpha
+                plat.fillAlpha = 1; // Keep newly added platforms solid black
             }
         });
     }
@@ -626,16 +628,28 @@ export default class BaseLevel extends Phaser.Scene {
         return points;
     }
 
-    getSpawnPoint(index = 0) {
+    disableStartPlatformCollision(platform) {
+        if (platform?.body) {
+            platform.body.checkCollision.none = true;
+            platform.body.enable = false;
+        }
+    }
+
+    getSpawnPoint(index = 0, applyDropOffset = true) {
         const data = this.spawnPointsNormalized?.[index];
         const width = this.sceneWidth || this.scale.width;
         const height = this.sceneHeight || this.scale.height;
+        const fallbackX = width ? width * 0.1 : 0;
+        const fallbackY = height ? Math.max(16, height * 0.1) : 60;
         if (!data || !width || !height) {
-            return { x: width * 0.1, y: 60 };
+            return { x: fallbackX, y: fallbackY };
         }
+        const baseX = data.x * width;
+        const baseY = data.y * height;
+        const dropOffset = applyDropOffset ? (this.spawnDropOffset ?? Math.max(40, height * 0.05)) : 0;
         return {
-            x: data.x * width,
-            y: data.y * height
+            x: baseX,
+            y: Math.max(16, baseY - dropOffset)
         };
     }
 
@@ -683,7 +697,7 @@ export default class BaseLevel extends Phaser.Scene {
                     y: clampedY / height
                 };
                 if (index === 0) {
-                    this.startPosition = { x: clampedX, y: clampedY };
+                    this.startPosition = this.getSpawnPoint(0);
                 }
             });
 

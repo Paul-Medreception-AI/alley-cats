@@ -1,6 +1,33 @@
 import BaseLevel from './BaseLevel';
 import { addAudioToggle } from '../audioToggleUI.js';
 
+const ALLEYWAY_DEFAULT_LAYOUT = [
+    { x: 0.4083333333333333, y: 0.06428571428571428, width: 128.09756516221552, height: 22, visible: true },
+    { x: 0.36, y: 0.3314285714285714, width: 74.09915313426681, height: 30.348977457954813, visible: true },
+    { x: 0.2658333333333333, y: 0.26857142857142857, width: 92.03836670192709, height: 22, visible: true },
+    { x: 0.41833333333333333, y: 0.15428571428571428, width: 94.12995754126372, height: 22, visible: true },
+    { x: 0.44916666666666666, y: 0.40714285714285714, width: 109.78378535027058, height: 20, visible: true },
+    { x: 0.8158333333333333, y: 0.4157142857142857, width: 249.4075783983721, height: 22, visible: false },
+    { x: 0.7091666666666666, y: 0.37285714285714283, width: 110, height: 22, visible: true },
+    { x: 0.46416666666666667, y: 0.10285714285714286, width: 68.94767216520052, height: 22, visible: true },
+    { x: 0.6117251293241556, y: 0.38142857142857145, width: 76.17925755041342, height: 22, visible: true },
+    { x: 0.3416666666666667, y: 0.19142857142857142, width: 62.57044374592704, height: 22, visible: true },
+    { x: 0.5191666666666667, y: 0.33, width: 65.14088749185419, height: 42.134443534741735, visible: true },
+    { x: 0.5466666666666666, y: 0.22714285714285715, width: 65.64337990447176, height: 33.42296235649451, visible: true },
+    { x: 0.4741666666666667, y: 0.7842857142857143, width: 190.3680261852394, height: 22, visible: true },
+    { x: 0.24333333333333335, y: 0.44285714285714284, width: 35.38457997613929, height: 43.74831801533645, visible: true },
+    { x: 0.07583333333333334, y: 0.3557142857142857, width: 270.96216612667007, height: 20, visible: false },
+    { x: 0.9375, y: 0.6857142857142857, width: 169.46521096244714, height: 20, visible: true }
+];
+
+const ALLEYWAY_DEFAULT_SPAWNS = [
+    { x: 0.15206056821236524, y: 0.13439096239168333 },
+    { x: 0.10745639347100043, y: 0.13586601320008937 },
+    { x: 0.08959172325404624, y: 0.13660353860429233 },
+    { x: 0.12865632073422448, y: 0.13586601320008934 },
+    { x: 0.07154495839273206, y: 0.13144086077487135 }
+];
+
 export default class AlleywayLevel extends BaseLevel {
     constructor() {
         super('AlleywayLevel');
@@ -166,30 +193,28 @@ export default class AlleywayLevel extends BaseLevel {
     }
 
     createPlatforms(width, height) {
-        const defaults = [
-            { x: 0.25, y: 0.33, width: 140 },
-            { x: 0.35, y: 0.40, width: 160 },
-            { x: 0.48, y: 0.46, width: 150 },
-            { x: 0.60, y: 0.43, width: 120 },
-            { x: 0.72, y: 0.48, width: 190 },
-            { x: 0.85, y: 0.44, width: 90 },
-            { x: 0.90, y: 0.36, width: 110 },
-            { x: 0.64, y: 0.30, width: 100 },
-            { x: 0.78, y: 0.26, width: 130 },
-            { x: 0.55, y: 0.22, width: 90 },
-            { x: 0.70, y: 0.18, width: 120 },
-            { x: 0.86, y: 0.14, width: 150 },
-            { x: 0.42, y: 0.58, width: 150 }
-        ];
-
         this.startPlatform = this.add.rectangle(width * 0.07, height * 0.22, 220, 30, 0x000000, 0);
         this.physics.add.existing(this.startPlatform, true);
         this.platforms.add(this.startPlatform);
+        this.disableStartPlatformCollision(this.startPlatform);
 
-        defaults.forEach((line) => {
-            const plat = this.add.rectangle(width * line.x, height * line.y, line.width, line.height || 22,
-                0x000000, 1);
+        ALLEYWAY_DEFAULT_LAYOUT.forEach(item => {
+            const platWidth = item.width ?? 120;
+            const platHeight = item.height ?? 22;
+            const platX = item.x <= 1 ? item.x * width : item.x;
+            const platY = item.y <= 1 ? item.y * height : item.y;
+            const isVisible = item.visible !== false;
+            const plat = this.add.rectangle(
+                platX,
+                platY,
+                platWidth,
+                platHeight,
+                0x000000,
+                isVisible ? 1 : 0
+            );
             this.physics.add.existing(plat, true);
+            plat._isVisible = isVisible;
+            plat.setVisible(isVisible);
             this.platforms.add(plat);
         });
     }
@@ -331,6 +356,10 @@ export default class AlleywayLevel extends BaseLevel {
                 scores: this.scores
             });
         }
+    }
+
+    createDefaultSpawnPoints() {
+        return ALLEYWAY_DEFAULT_SPAWNS.map(sp => ({ ...sp }));
     }
 
     getCharacterTexture(character) {

@@ -1,6 +1,25 @@
 import BaseLevel from './BaseLevel';
 import { addAudioToggle } from '../audioToggleUI.js';
 
+const RIVER_DEFAULT_LAYOUT = [
+    { x: 0.12916666666666668, y: 0.8485714285714285, width: 146.17596508634756, height: 30, visible: false },
+    { x: 0.17916666666666667, y: 0.27285714285714285, width: 326.47420305748005, height: 196.05826703100718, visible: true },
+    { x: 0.7675, y: 0.8357142857142857, width: 82.75416828160627, height: 22, visible: false },
+    { x: 0.2875, y: 0.8642857142857143, width: 110.30649611640575, height: 21, visible: false },
+    { x: 0.6408333333333334, y: 0.3157142857142857, width: 264.0207516821431, height: 219.76118846384944, visible: true },
+    { x: 0.5983333333333334, y: 0.8671428571428571, width: 71.56762852313503, height: 22, visible: false },
+    { x: 0.5208333333333334, y: 0.4957142857142857, width: 145.3119359141648, height: 114.92820092957732, visible: true },
+    { x: 0.9766666666666667, y: 0.7828571428571428, width: 102.3864306533078, height: 22, visible: false }
+];
+
+const RIVER_DEFAULT_SPAWNS = [
+    { x: 0.06623538433562778, y: 0.2649329589356134 },
+    { x: 0.08373586526386194, y: 0.2553451286809745 },
+    { x: 0.08786659392989073, y: 0.26714553514822237 },
+    { x: 0.09674142823734722, y: 0.24723234923474155 },
+    { x: 0.09957830991025936, y: 0.2833710940406883 }
+];
+
 export default class RiverLevel extends BaseLevel {
     constructor() {
         super('RiverLevel');
@@ -68,24 +87,28 @@ export default class RiverLevel extends BaseLevel {
     }
 
     createPlatforms(width, height) {
-        const start = this.add.rectangle(120, height - 120, 200, 30, 0x000000, 0);
+        const start = this.add.rectangle(width * 0.08, height * 0.2, 220, 30, 0x000000, 0);
         this.physics.add.existing(start, true);
         this.platforms.add(start);
+        this.startPlatform = start;
+        this.disableStartPlatformCollision(this.startPlatform);
 
-        const pads = [
-            { x: 320, y: height - 200, w: 140 },
-            { x: 520, y: height - 260, w: 180 },
-            { x: 380, y: height - 360, w: 140 },
-            { x: 600, y: height - 420, w: 200 },
-            { x: 470, y: height - 520, w: 140 },
-            { x: 720, y: height - 460, w: 200 }
-        ];
-
-        pads.forEach(def => {
-            const platform = this.add.rectangle(def.x, def.y, def.w, 22, 0x000000, 1);
+        RIVER_DEFAULT_LAYOUT.forEach(item => {
+            const platWidth = item.width ?? 120;
+            const platHeight = item.height ?? 22;
+            const platX = item.x <= 1 ? item.x * width : item.x;
+            const platY = item.y <= 1 ? item.y * height : item.y;
+            const isVisible = item.visible !== false;
+            const platform = this.add.rectangle(platX, platY, platWidth, platHeight, 0x000000, isVisible ? 1 : 0);
             this.physics.add.existing(platform, true);
+            platform._isVisible = isVisible;
+            platform.setVisible(isVisible);
             this.platforms.add(platform);
         });
+    }
+
+    createDefaultSpawnPoints() {
+        return RIVER_DEFAULT_SPAWNS.map(sp => ({ ...sp }));
     }
 
     createPlayer() {
