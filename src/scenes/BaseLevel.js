@@ -803,8 +803,9 @@ export default class BaseLevel extends Phaser.Scene {
     }
 
     setupMobileControls(width, height) {
-        // Only enable mobile controls on mobile / touch devices
-        if (!isMobile()) {
+        // Only enable mobile controls when the device actually supports touch
+        const hasTouch = this.sys?.game?.device?.input?.touch;
+        if (!hasTouch) {
             this.mobileControlsEnabled = false;
             return;
         }
