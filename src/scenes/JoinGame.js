@@ -43,6 +43,8 @@ export default class JoinGame extends Phaser.Scene {
             fill: '#ffffff'
         }).setOrigin(0.5);
 
+        this.codeInputBackground = inputBackground;
+
         this.defaultInstructionMessage = 'Type the host code using your keyboard';
         this.instructions = this.add.text(width / 2, height / 2 + 30, this.defaultInstructionMessage, {
             fontSize: '20px',
@@ -50,6 +52,7 @@ export default class JoinGame extends Phaser.Scene {
         }).setOrigin(0.5);
 
         this.enableKeyboardEntry();
+        this.setupMobileCodeInput();
 
         const joinButton = this.add.text(width / 2, height / 2 + 110, 'JOIN GAME', {
             fontSize: '28px',
@@ -110,6 +113,83 @@ export default class JoinGame extends Phaser.Scene {
         backButton.on('pointerdown', () => {
             this.scene.start('HostOrJoin', { mode: this.mode, connectionType: 'join', joinCode: this.joinCode });
         });
+    }
+
+    setupMobileCodeInput() {
+        const isTouch = this.sys.game.device.input.touch;
+        if (!isTouch) {
+            return;
+        }
+
+        if (!this.domCodeInput) {
+            this.createDomCodeInput();
+        }
+
+        const focusInput = () => {
+            if (!this.domCodeInput) return;
+            // Ensure value reflects current text before editing
+            this.domCodeInput.value = this.codeText.text || '';
+            this.domCodeInput.focus({ preventScroll: true });
+            // iOS sometimes needs a second tick to focus
+            setTimeout(() => {
+                this.domCodeInput && this.domCodeInput.focus({ preventScroll: true });
+            }, 0);
+        };
+
+        this.codeInputBackground?.setInteractive({ useHandCursor: true }).on('pointerdown', focusInput);
+        this.codeText?.setInteractive({ useHandCursor: true }).on('pointerdown', focusInput);
+
+        this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+            this.cleanupDomCodeInput();
+        });
+    }
+
+    createDomCodeInput() {
+        if (typeof document === 'undefined') return;
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.autocomplete = 'one-time-code';
+        input.inputMode = 'text';
+        input.maxLength = this.codeLength;
+        input.style.position = 'fixed';
+        input.style.opacity = '0';
+        input.style.pointerEvents = 'none';
+        input.style.left = '50%';
+        input.style.top = '50%';
+        input.style.transform = 'translate(-50%, -50%)';
+        input.style.zIndex = '9999';
+
+        const handleInput = () => {
+            const raw = (input.value || '').toUpperCase();
+            const filtered = raw.replace(/[^0-9A-Z]/g, '').slice(0, this.codeLength);
+            if (filtered !== input.value) {
+                input.value = filtered;
+            }
+            this.codeText.setText(filtered);
+            if (filtered.length === this.codeLength) {
+                this.instructions.setText('Ready to join!').setColor('#22c55e');
+            } else {
+                this.instructions.setText(this.defaultInstructionMessage).setColor('#94a3b8');
+            }
+        };
+
+        input.addEventListener('input', handleInput);
+
+        document.body.appendChild(input);
+        this.domCodeInput = input;
+        this._domCodeInputHandler = handleInput;
+    }
+
+    cleanupDomCodeInput() {
+        if (!this.domCodeInput) return;
+        if (this._domCodeInputHandler) {
+            this.domCodeInput.removeEventListener('input', this._domCodeInputHandler);
+        }
+        if (this.domCodeInput.parentNode) {
+            this.domCodeInput.parentNode.removeChild(this.domCodeInput);
+        }
+        this.domCodeInput = null;
+        this._domCodeInputHandler = null;
     }
 
     enableKeyboardEntry() {

@@ -811,12 +811,14 @@ export default class BaseLevel extends Phaser.Scene {
         }
 
         this.mobileControlsInitialized = true;
+        this.mobileScreenWidth = width;
         this.mobileInput = { left: false, right: false, jumpQueued: false };
         this.mobileMovementPointers = new Map();
         this.mobileJumpPointers = new Set();
         this.input.addPointer(2);
 
         this.createMobileJumpButton(width, height);
+        this.createMobileMovementButtons(width, height);
 
         this._mobilePointerDownHandler = (pointer) => this.handleMobilePointerDown(pointer);
         this._mobilePointerUpHandler = (pointer) => this.handleMobilePointerUp(pointer);
@@ -857,6 +859,57 @@ export default class BaseLevel extends Phaser.Scene {
         this.mobileJumpBounds = new Phaser.Geom.Rectangle(x - radius, y - radius, radius * 2, radius * 2);
     }
 
+    createMobileMovementButtons(width, height) {
+        const radius = 50;
+        const padding = 20;
+        const centerY = height - padding - radius;
+        const rightX = width - padding - radius;
+        const leftX = rightX - radius * 2 - 20;
+
+        this.mobileRightButton = this.add.circle(rightX, centerY, radius, 0x000000, 0.35)
+            .setScrollFactor(0)
+            .setDepth(1002)
+            .setVisible(true);
+        this.mobileRightButton.setStrokeStyle(2, 0xffffff, 0.4);
+
+        this.mobileRightText = this.add.text(rightX, centerY, '▶', {
+            fontSize: '26px',
+            fill: '#ffffff',
+            fontStyle: 'bold'
+        })
+        .setOrigin(0.5)
+        .setDepth(1003)
+        .setScrollFactor(0);
+
+        this.mobileLeftButton = this.add.circle(leftX, centerY, radius, 0x000000, 0.35)
+            .setScrollFactor(0)
+            .setDepth(1002)
+            .setVisible(true);
+        this.mobileLeftButton.setStrokeStyle(2, 0xffffff, 0.4);
+
+        this.mobileLeftText = this.add.text(leftX, centerY, '◀', {
+            fontSize: '26px',
+            fill: '#ffffff',
+            fontStyle: 'bold'
+        })
+        .setOrigin(0.5)
+        .setDepth(1003)
+        .setScrollFactor(0);
+
+        this.mobileLeftBounds = new Phaser.Geom.Rectangle(
+            leftX - radius,
+            centerY - radius,
+            radius * 2,
+            radius * 2
+        );
+        this.mobileRightBounds = new Phaser.Geom.Rectangle(
+            rightX - radius,
+            centerY - radius,
+            radius * 2,
+            radius * 2
+        );
+    }
+
     updateMobileJumpBounds() {
         if (!this.mobileJumpButton) return;
         const radius = this.mobileJumpButton.radius;
@@ -880,7 +933,17 @@ export default class BaseLevel extends Phaser.Scene {
 
         if (pointer.y < this.mobileControlActivationY) return;
 
-        const direction = pointer.x < this.mobileScreenWidth / 2 ? 'left' : 'right';
+        let direction = null;
+        if (this.mobileLeftBounds && Phaser.Geom.Rectangle.Contains(this.mobileLeftBounds, pointer.x, pointer.y)) {
+            direction = 'left';
+            this.mobileLeftButton?.setAlpha(0.55);
+        } else if (this.mobileRightBounds && Phaser.Geom.Rectangle.Contains(this.mobileRightBounds, pointer.x, pointer.y)) {
+            direction = 'right';
+            this.mobileRightButton?.setAlpha(0.55);
+        }
+
+        if (!direction) return;
+
         this.mobileMovementPointers.set(pointer.id, direction);
         this.updateMobileMovementState();
     }
@@ -897,7 +960,13 @@ export default class BaseLevel extends Phaser.Scene {
         }
 
         if (this.mobileMovementPointers.has(pointer.id)) {
+            const dir = this.mobileMovementPointers.get(pointer.id);
             this.mobileMovementPointers.delete(pointer.id);
+            if (dir === 'left') {
+                this.mobileLeftButton?.setAlpha(0.35);
+            } else if (dir === 'right') {
+                this.mobileRightButton?.setAlpha(0.35);
+            }
             this.updateMobileMovementState();
         }
     }
@@ -908,12 +977,35 @@ export default class BaseLevel extends Phaser.Scene {
         if (!this.mobileMovementPointers.has(pointer.id)) return;
 
         if (pointer.y < this.mobileControlActivationY) {
+            const prevDir = this.mobileMovementPointers.get(pointer.id);
             this.mobileMovementPointers.delete(pointer.id);
+            if (prevDir === 'left') {
+                this.mobileLeftButton?.setAlpha(0.35);
+            } else if (prevDir === 'right') {
+                this.mobileRightButton?.setAlpha(0.35);
+            }
             this.updateMobileMovementState();
             return;
         }
 
-        const direction = pointer.x < this.mobileScreenWidth / 2 ? 'left' : 'right';
+        let direction = null;
+        if (this.mobileLeftBounds && Phaser.Geom.Rectangle.Contains(this.mobileLeftBounds, pointer.x, pointer.y)) {
+            direction = 'left';
+        } else if (this.mobileRightBounds && Phaser.Geom.Rectangle.Contains(this.mobileRightBounds, pointer.x, pointer.y)) {
+            direction = 'right';
+        }
+
+        if (!direction) {
+            const prevDir = this.mobileMovementPointers.get(pointer.id);
+            if (prevDir) {
+                if (prevDir === 'left') this.mobileLeftButton?.setAlpha(0.35);
+                if (prevDir === 'right') this.mobileRightButton?.setAlpha(0.35);
+                this.mobileMovementPointers.delete(pointer.id);
+                this.updateMobileMovementState();
+            }
+            return;
+        }
+
         const prev = this.mobileMovementPointers.get(pointer.id);
         if (prev !== direction) {
             this.mobileMovementPointers.set(pointer.id, direction);
@@ -937,9 +1029,19 @@ export default class BaseLevel extends Phaser.Scene {
 
         this.mobileJumpButton?.destroy();
         this.mobileJumpText?.destroy();
+        this.mobileLeftButton?.destroy();
+        this.mobileLeftText?.destroy();
+        this.mobileRightButton?.destroy();
+        this.mobileRightText?.destroy();
         this.mobileJumpButton = null;
         this.mobileJumpText = null;
+        this.mobileLeftButton = null;
+        this.mobileLeftText = null;
+        this.mobileRightButton = null;
+        this.mobileRightText = null;
         this.mobileJumpBounds = null;
+        this.mobileLeftBounds = null;
+        this.mobileRightBounds = null;
         this.mobileMovementPointers?.clear();
         this.mobileJumpPointers?.clear();
         this.mobileControlsInitialized = false;

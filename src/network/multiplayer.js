@@ -1,6 +1,11 @@
 import { io } from 'socket.io-client';
 
-const SERVER_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:4000';
+const DEFAULT_SERVER_URL = (typeof window !== 'undefined'
+    && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'))
+    ? 'http://localhost:4000'
+    : window.location.origin;
+
+const SERVER_URL = import.meta.env.VITE_SOCKET_URL || DEFAULT_SERVER_URL;
 const DEFAULT_NAME = `Player-${Math.random().toString(36).slice(-4)}`;
 
 class EventHub {
