@@ -4,6 +4,7 @@ const cors = require('cors');
 const { Server } = require('socket.io');
 
 const PORT = process.env.PORT || 4000;
+const HOST = process.env.HOST || '0.0.0.0';
 const ORIGIN = process.env.CLIENT_ORIGIN || '*';
 const MAX_ROOM_SIZE = Number(process.env.MAX_ROOM_SIZE || 6);
 
@@ -102,6 +103,6 @@ io.on('connection', (socket) => {
   });
 });
 
-httpServer.listen(PORT, () => {
-  console.log(`Socket server listening on http://localhost:${PORT}`);
+httpServer.listen(PORT, HOST, () => {
+  console.log(`Socket server listening on http://${HOST}:${PORT}`);
 });
