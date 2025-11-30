@@ -76,6 +76,8 @@ export default class CaveLevel extends BaseLevel {
         this.cameras.main.setBounds(0, 0, width, height);
 
         this.initEditor(width, height);
+        this.setupMultiplayerSupport();
+        this.setupMobileControls(width, height);
     }
 
     createBackgrounds(width, height) {
@@ -138,6 +140,7 @@ export default class CaveLevel extends BaseLevel {
         this.physics.add.collider(this.player, this.platforms);
 
         this.cursors = this.input.keyboard.createCursorKeys();
+        this.attachLocalPlayerLabel();
     }
 
     createHUD(width, height) {
@@ -179,21 +182,25 @@ export default class CaveLevel extends BaseLevel {
 
     update() {
         if (this.roundEnded) return;
+        const { left, right, jump } = this.getMovementInput();
         const speed = 220;
 
-        if (this.cursors.left.isDown) {
+        if (left && !right) {
             this.player.setVelocityX(-speed);
             this.player.setFlipX(true);
-        } else if (this.cursors.right.isDown) {
+        } else if (right && !left) {
             this.player.setVelocityX(speed);
             this.player.setFlipX(false);
         } else {
             this.player.setVelocityX(0);
         }
 
-        if ((this.cursors.up.isDown || this.cursors.space.isDown) && this.player.body.touching.down) {
+        if (jump && this.player.body.touching.down) {
             this.player.setVelocityY(-400);
         }
+
+        this.updateLocalNameLabel();
+        this.broadcastPlayerState();
     }
 
     handleHoneyFall() {

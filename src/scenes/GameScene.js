@@ -1,4 +1,5 @@
 import { addAudioToggle } from '../audioToggleUI.js';
+import { multiplayer } from '../network/multiplayer.js';
 
 const MATCH_KEY_PREFIX = 'alleycats:match:';
 
@@ -19,6 +20,12 @@ export default class GameScene extends Phaser.Scene {
         this.selectedLevel = null;
         this.jumpTargetY = null;
         this.matchKey = null;
+        this.mobileControlsEnabled = false;
+        this.mobileControlsInitialized = false;
+        this.mobileInput = { left: false, right: false, jumpQueued: false };
+        this.mobileMovementPointers = new Map();
+        this.mobileJumpPointers = new Set();
+        this.remoteLevelHandlers = [];
     }
 
     init(data) {
@@ -60,6 +67,7 @@ export default class GameScene extends Phaser.Scene {
         this.player.body.setOffset((this.player.width - bodyWidth) / 2, this.player.height * 0.5);
 
         this.cursors = this.input.keyboard.createCursorKeys();
+        this.setupMobileControls(width, height);
 
         this.physics.add.collider(this.player, ground);
         
@@ -112,6 +120,10 @@ export default class GameScene extends Phaser.Scene {
                 loop: true,
                 callback: () => this.checkRemoteLaunch()
             });
+            if (multiplayer.isInRoom()) {
+                this.setupRemoteLevelBridge();
+                this.checkImmediateHostLevel();
+            }
         }
 
         this.createBackButton(width, height);
@@ -126,19 +138,19 @@ export default class GameScene extends Phaser.Scene {
         const touchingLeftWall = this.player.body.blocked.left;
         const touchingRightWall = this.player.body.blocked.right;
         const touchingWall = touchingLeftWall || touchingRightWall;
-        // Player movement
-        if (this.cursors.left.isDown) {
+        const { left, right, jump } = this.getMovementInput();
+
+        if (left && !right) {
             this.player.setVelocityX(-200);
             this.player.setFlipX(true);
-        } else if (this.cursors.right.isDown) {
+        } else if (right && !left) {
             this.player.setVelocityX(200);
             this.player.setFlipX(false);
         } else {
             this.player.setVelocityX(0);
         }
 
-        // Jumping
-        if ((this.cursors.up.isDown || this.cursors.space.isDown) && (grounded || touchingWall)) {
+        if (jump && (grounded || touchingWall)) {
             this.player.setVelocityY(-400);
             if (touchingWall) {
                 const wallPush = touchingLeftWall ? 160 : -160;
@@ -444,5 +456,241 @@ export default class GameScene extends Phaser.Scene {
                 character: this.selectedCharacter
             });
         });
+    }
+
+    isTouchDevice() {
+        return !!this.sys?.game?.device?.input?.touch;
+    }
+
+    setupMobileControls(width, height) {
+        if (!this.isTouchDevice()) {
+            this.mobileControlsEnabled = false;
+            return;
+        }
+
+        this.mobileControlsEnabled = true;
+        this.mobileScreenWidth = width;
+        this.mobileControlActivationY = height * 0.35;
+
+        if (this.mobileControlsInitialized) {
+            this.updateMobileJumpBounds();
+            return;
+        }
+
+        this.mobileControlsInitialized = true;
+        this.mobileInput = { left: false, right: false, jumpQueued: false };
+        this.mobileMovementPointers = new Map();
+        this.mobileJumpPointers = new Set();
+        this.input.addPointer(2);
+
+        this.createMobileJumpButton(width, height);
+
+        this._mobilePointerDownHandler = (pointer) => this.handleMobilePointerDown(pointer);
+        this._mobilePointerUpHandler = (pointer) => this.handleMobilePointerUp(pointer);
+        this._mobilePointerUpOutsideHandler = (pointer) => this.handleMobilePointerUp(pointer);
+        this._mobilePointerMoveHandler = (pointer) => this.handleMobilePointerMove(pointer);
+
+        this.input.on('pointerdown', this._mobilePointerDownHandler, this);
+        this.input.on('pointerup', this._mobilePointerUpHandler, this);
+        this.input.on('pointerupoutside', this._mobilePointerUpOutsideHandler, this);
+        this.input.on('pointermove', this._mobilePointerMoveHandler, this);
+
+        this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+            this.disposeMobileControls();
+        });
+    }
+
+    createMobileJumpButton(width, height) {
+        const radius = 60;
+        const padding = 20;
+        const x = padding + radius;
+        const y = height - padding - radius;
+
+        this.mobileJumpButton = this.add.circle(x, y, radius, 0x000000, 0.35)
+            .setScrollFactor(0)
+            .setDepth(1002);
+        this.mobileJumpButton.setStrokeStyle(2, 0xffffff, 0.4);
+
+        this.mobileJumpText = this.add.text(x, y, 'JUMP', {
+            fontSize: '18px',
+            fill: '#ffffff',
+            fontStyle: 'bold'
+        })
+        .setOrigin(0.5)
+        .setDepth(1003)
+        .setScrollFactor(0);
+
+        this.mobileJumpBounds = new Phaser.Geom.Rectangle(x - radius, y - radius, radius * 2, radius * 2);
+    }
+
+    updateMobileJumpBounds() {
+        if (!this.mobileJumpButton) return;
+        const radius = this.mobileJumpButton.radius;
+        this.mobileJumpBounds = new Phaser.Geom.Rectangle(
+            this.mobileJumpButton.x - radius,
+            this.mobileJumpButton.y - radius,
+            radius * 2,
+            radius * 2
+        );
+    }
+
+    handleMobilePointerDown(pointer) {
+        if (!this.mobileControlsEnabled || pointer.pointerType === 'mouse') return;
+
+        if (this.mobileJumpBounds && Phaser.Geom.Rectangle.Contains(this.mobileJumpBounds, pointer.x, pointer.y)) {
+            this.mobileInput.jumpQueued = true;
+            this.mobileJumpPointers.add(pointer.id);
+            this.mobileJumpButton?.setAlpha(0.55);
+            return;
+        }
+
+        if (pointer.y < this.mobileControlActivationY) return;
+
+        const direction = pointer.x < this.mobileScreenWidth / 2 ? 'left' : 'right';
+        this.mobileMovementPointers.set(pointer.id, direction);
+        this.updateMobileMovementState();
+    }
+
+    handleMobilePointerUp(pointer) {
+        if (!this.mobileControlsEnabled || pointer.pointerType === 'mouse') return;
+
+        if (this.mobileJumpPointers.has(pointer.id)) {
+            this.mobileJumpPointers.delete(pointer.id);
+            if (this.mobileJumpPointers.size === 0) {
+                this.mobileJumpButton?.setAlpha(0.35);
+            }
+            return;
+        }
+
+        if (this.mobileMovementPointers.has(pointer.id)) {
+            this.mobileMovementPointers.delete(pointer.id);
+            this.updateMobileMovementState();
+        }
+    }
+
+    handleMobilePointerMove(pointer) {
+        if (!this.mobileControlsEnabled || !pointer.isDown || pointer.pointerType === 'mouse') return;
+        if (this.mobileJumpPointers.has(pointer.id)) return;
+        if (!this.mobileMovementPointers.has(pointer.id)) return;
+
+        if (pointer.y < this.mobileControlActivationY) {
+            this.mobileMovementPointers.delete(pointer.id);
+            this.updateMobileMovementState();
+            return;
+        }
+
+        const direction = pointer.x < this.mobileScreenWidth / 2 ? 'left' : 'right';
+        const prev = this.mobileMovementPointers.get(pointer.id);
+        if (prev !== direction) {
+            this.mobileMovementPointers.set(pointer.id, direction);
+            this.updateMobileMovementState();
+        }
+    }
+
+    updateMobileMovementState() {
+        const directions = Array.from(this.mobileMovementPointers.values());
+        this.mobileInput.left = directions.includes('left');
+        this.mobileInput.right = directions.includes('right');
+    }
+
+    disposeMobileControls() {
+        if (!this.mobileControlsInitialized) return;
+        this.input.off('pointerdown', this._mobilePointerDownHandler, this);
+        this.input.off('pointerup', this._mobilePointerUpHandler, this);
+        this.input.off('pointerupoutside', this._mobilePointerUpOutsideHandler, this);
+        this.input.off('pointermove', this._mobilePointerMoveHandler, this);
+        this.mobileJumpButton?.destroy();
+        this.mobileJumpText?.destroy();
+        this.mobileJumpButton = null;
+        this.mobileJumpText = null;
+        this.mobileJumpBounds = null;
+        this.mobileMovementPointers?.clear();
+        this.mobileJumpPointers?.clear();
+        this.mobileControlsInitialized = false;
+    }
+
+    consumeMobileJump() {
+        if (!this.mobileInput.jumpQueued) return false;
+        this.mobileInput.jumpQueued = false;
+        return true;
+    }
+
+    getMovementInput() {
+        const leftKey = this.cursors?.left?.isDown || false;
+        const rightKey = this.cursors?.right?.isDown || false;
+        const jumpKey = (this.cursors?.up?.isDown || false) || (this.cursors?.space?.isDown || false);
+
+        return {
+            left: leftKey || this.mobileInput.left,
+            right: rightKey || this.mobileInput.right,
+            jump: jumpKey || this.consumeMobileJump()
+        };
+    }
+
+    setupRemoteLevelBridge() {
+        this.teardownRemoteLevelBridge();
+        const handleMetadata = ({ id }) => {
+            const hostId = this.getHostPlayerId();
+            if (!hostId || id !== hostId) return;
+            const hostMeta = multiplayer.getPlayerMetadata(id);
+            this.handleRemoteLevelKey(hostMeta?.currentLevel, 'metadata');
+        };
+        const handleEvent = (evt) => {
+            if (evt?.type !== 'game:startLevel') return;
+            this.handleRemoteLevelKey(evt?.payload?.level, 'room:event');
+        };
+        this.remoteLevelHandlers = [
+            multiplayer.on('player:metadata', handleMetadata),
+            multiplayer.on('room:event', handleEvent)
+        ];
+        this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.teardownRemoteLevelBridge());
+    }
+
+    teardownRemoteLevelBridge() {
+        if (this.remoteLevelHandlers?.length) {
+            this.remoteLevelHandlers.forEach((off) => off?.());
+        }
+        this.remoteLevelHandlers = [];
+    }
+
+    checkImmediateHostLevel() {
+        const hostId = this.getHostPlayerId();
+        if (!hostId) return;
+        const hostMeta = multiplayer.getPlayerMetadata(hostId);
+        if (hostMeta?.currentLevel) {
+            this.handleRemoteLevelKey(hostMeta.currentLevel, 'initial');
+        }
+    }
+
+    handleRemoteLevelKey(levelKey, source = 'unknown') {
+        const sceneKey = this.resolveRemoteScene(levelKey);
+        if (!sceneKey) return;
+        console.info('[GameScene] remote level start via', source, 'level:', levelKey);
+        this.teardownRemoteLevelBridge();
+        this.saveMatchState({});
+        this.scene.start(sceneKey, {
+            joinCode: this.joinCode,
+            connectionType: 'join',
+            playerCount: this.playerCount,
+            character: this.selectedCharacter,
+            matchKey: this.matchKey,
+            level: levelKey,
+            round: 1,
+            scores: { host: 0, opponent: 0 }
+        });
+    }
+
+    resolveRemoteScene(levelKey) {
+        if (typeof levelKey !== 'string' || !levelKey.endsWith('Level')) return null;
+        if (!this.scene?.manager?.keys?.[levelKey]) return null;
+        if (this.scene.key === levelKey) return null;
+        return levelKey;
+    }
+
+    getHostPlayerId() {
+        if (!multiplayer.isInRoom()) return null;
+        const players = multiplayer.getPlayers() || [];
+        const host = players.find((p) => p.isHost);
+        return host?.id || null;
     }
 }

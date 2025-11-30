@@ -1,4 +1,5 @@
 import { addAudioToggle } from '../audioToggleUI.js';
+import { multiplayer } from '../network/multiplayer.js';
 
 export default class CharacterSelect extends Phaser.Scene {
     constructor() {
@@ -113,6 +114,12 @@ export default class CharacterSelect extends Phaser.Scene {
 
     handleCharacterSelect(character) {
         const code = this.getConnectionCode();
+        if (multiplayer.isConnected()) {
+            multiplayer.setLocalMetadata({ character });
+            if (multiplayer.isInRoom()) {
+                multiplayer.broadcast('player:metadata', { character });
+            }
+        }
         const levelPayload = {
             mode: this.selectedMode,
             character,

@@ -1,4 +1,5 @@
 import { addAudioToggle } from '../audioToggleUI.js';
+import { multiplayer } from '../network/multiplayer.js';
 
 export default class LevelSelect extends Phaser.Scene {
     constructor() {
@@ -77,10 +78,59 @@ export default class LevelSelect extends Phaser.Scene {
             padding: { x: 20, y: 10 }
         }).setOrigin(0.5);
 
-        this.time.delayedCall(300, () => this.startLevel('alley'));
+        if (this.connectionInfo.connectionType === 'join' && multiplayer.isInRoom()) {
+            this.waitText = this.add.text(width / 2, height / 2 + 180, 'Waiting for host to start...', {
+                fontSize: '24px',
+                fill: '#fef3c7',
+                backgroundColor: 'rgba(0,0,0,0.5)',
+                padding: { x: 16, y: 8 }
+            }).setOrigin(0.5);
+
+            const maybeStartFromMetadata = () => {
+                const host = this.getHostPlayer();
+                if (!host) return false;
+                const hostMeta = multiplayer.getPlayerMetadata(host.id);
+                if (hostMeta?.currentLevel) {
+                    console.info('[LevelSelect] host metadata currentLevel', hostMeta.currentLevel);
+                    this.waitText?.destroy();
+                    this.cleanupWaitHandlers();
+                    this.startSceneForLevel(hostMeta.currentLevel);
+                    return true;
+                }
+                return false;
+            };
+
+            if (!maybeStartFromMetadata()) {
+                this.waitingHandler = multiplayer.on('room:event', (evt) => {
+                    if (evt?.type === 'game:startLevel') {
+                        console.debug('[LevelSelect] room:event', evt);
+                        this.waitText?.destroy();
+                        this.cleanupWaitHandlers();
+                        this.startSceneForLevel(evt?.payload?.level || 'alley');
+                    }
+                });
+                this.metadataHandler = multiplayer.on('player:metadata', ({ id }) => {
+                    const host = this.getHostPlayer();
+                    if (host && id === host.id) {
+                        if (maybeStartFromMetadata()) {
+                            this.cleanupWaitHandlers();
+                        }
+                    }
+                });
+                this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+                    this.cleanupWaitHandlers();
+                });
+            }
+        } else {
+            this.time.delayedCall(300, () => this.startLevel('alley'));
+        }
     }
 
     startLevel(levelKey) {
+        if (this.connectionInfo.connectionType === 'host' && multiplayer.isInRoom()) {
+            multiplayer.setLocalMetadata({ currentLevel: levelKey });
+            multiplayer.broadcast('game:startLevel', { level: levelKey });
+        }
         this.cameras.main.fadeOut(300, 0, 0, 0);
         this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => {
             this.scene.start('Game', {
@@ -88,5 +138,39 @@ export default class LevelSelect extends Phaser.Scene {
                 level: levelKey
             });
         });
+    }
+
+    getHostPlayer() {
+        if (!multiplayer.isInRoom()) return null;
+        const players = multiplayer.getPlayers() || [];
+        return players.find((p) => p.isHost) || null;
+    }
+
+    cleanupWaitHandlers() {
+        if (this.waitingHandler) {
+            this.waitingHandler();
+            this.waitingHandler = null;
+        }
+        if (this.metadataHandler) {
+            this.metadataHandler();
+            this.metadataHandler = null;
+        }
+    }
+
+    startSceneForLevel(levelKey = 'alley') {
+        const targetScene = this.resolveSceneKey(levelKey);
+        const payload = { ...this.connectionInfo, level: levelKey };
+        console.info('[LevelSelect] starting scene', targetScene, 'for level', levelKey);
+        this.scene.start(targetScene, payload);
+    }
+
+    resolveSceneKey(levelKey) {
+        const candidate = typeof levelKey === 'string' ? levelKey : '';
+        const sceneExists = candidate && this.scene?.manager?.keys && this.scene.manager.keys[candidate];
+        const looksLikeLevel = candidate.endsWith('Level');
+        if (sceneExists && looksLikeLevel) {
+            return candidate;
+        }
+        return 'Game';
     }
 }

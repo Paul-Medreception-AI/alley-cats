@@ -1,4 +1,7 @@
 import Phaser from 'phaser';
+import { multiplayer } from '../network/multiplayer.js';
+import { stateSync } from '../network/stateSync.js';
+import { isMobile } from '../utils/device.js';
 export default class BaseLevel extends Phaser.Scene {
     constructor(key) {
         super(key);
@@ -8,6 +11,25 @@ export default class BaseLevel extends Phaser.Scene {
         this.sceneHeight = 0;
         this.spawnSaveKey = '';
         this.spawnDropOffset = 60;
+        this.mobileControlsEnabled = false;
+        this.mobileControlsInitialized = false;
+        this.mobileInput = { left: false, right: false, jumpQueued: false };
+        this.mobileMovementPointers = new Map();
+        this.mobileJumpPointers = new Set();
+        this.mobileControlActivationY = 0;
+        this.remotePlayers = new Map();
+        this.multiplayerCleanup = [];
+        this.lastStateBroadcast = 0;
+        this.localNameLabel = null;
+        this.playerListText = null;
+        this.lastStartBroadcast = 0;
+        
+        // New UI elements
+        this.movementFeedback = null;
+        this.movementActive = false;
+        this.helpOverlay = null;
+        this.pauseMenu = null;
+        this.isPaused = false;
     }
 
     // Common editor functionality for all levels
@@ -215,10 +237,10 @@ export default class BaseLevel extends Phaser.Scene {
         ];
 
         positions.forEach(pos => {
-            const handle = this.add.sprite(0, 0, 'arrow')
-                .setScale(0.8)
+            const handle = this.createArrow()
                 .setVisible(false)
                 .setInteractive({ useHandCursor: true })
+                .setScale(0.8, 1)
                 .setAngle(pos.angle)
                 .setDepth(1000);
 
@@ -773,8 +795,384 @@ export default class BaseLevel extends Phaser.Scene {
         return platformData;
     }
 
+    disableStartPlatformCollision(platform) {
+        if (platform?.body) {
+            platform.body.checkCollision.none = true;
+            platform.body.enable = false;
+        }
+    }
+
+    setupMobileControls(width, height) {
+        this.mobileControlActivationY = height * 0.35;
+
+        if (this.mobileControlsInitialized) {
+            this.updateMobileJumpBounds();
+            return;
+        }
+
+        this.mobileControlsInitialized = true;
+        this.mobileInput = { left: false, right: false, jumpQueued: false };
+        this.mobileMovementPointers = new Map();
+        this.mobileJumpPointers = new Set();
+        this.input.addPointer(2);
+
+        this.createMobileJumpButton(width, height);
+
+        this._mobilePointerDownHandler = (pointer) => this.handleMobilePointerDown(pointer);
+        this._mobilePointerUpHandler = (pointer) => this.handleMobilePointerUp(pointer);
+        this._mobilePointerUpOutsideHandler = (pointer) => this.handleMobilePointerUp(pointer);
+        this._mobilePointerMoveHandler = (pointer) => this.handleMobilePointerMove(pointer);
+
+        this.input.on('pointerdown', this._mobilePointerDownHandler, this);
+        this.input.on('pointerup', this._mobilePointerUpHandler, this);
+        this.input.on('pointerupoutside', this._mobilePointerUpOutsideHandler, this);
+        this.input.on('pointermove', this._mobilePointerMoveHandler, this);
+
+        this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+            this.disposeMobileControls();
+        });
+    }
+
+    createMobileJumpButton(width, height) {
+        const radius = 60;
+        const padding = 20;
+        const x = padding + radius;
+        const y = height - padding - radius;
+
+        this.mobileJumpButton = this.add.circle(x, y, radius, 0x000000, 0.35)
+            .setScrollFactor(0)
+            .setDepth(1002)
+            .setVisible(true);
+        this.mobileJumpButton.setStrokeStyle(2, 0xffffff, 0.4);
+
+        this.mobileJumpText = this.add.text(x, y, 'JUMP', {
+            fontSize: '18px',
+            fill: '#ffffff',
+            fontStyle: 'bold'
+        })
+        .setOrigin(0.5)
+        .setDepth(1003)
+        .setScrollFactor(0);
+
+        this.mobileJumpBounds = new Phaser.Geom.Rectangle(x - radius, y - radius, radius * 2, radius * 2);
+    }
+
+    updateMobileJumpBounds() {
+        if (!this.mobileJumpButton) return;
+        const radius = this.mobileJumpButton.radius;
+        this.mobileJumpBounds = new Phaser.Geom.Rectangle(
+            this.mobileJumpButton.x - radius,
+            this.mobileJumpButton.y - radius,
+            radius * 2,
+            radius * 2
+        );
+    }
+
+    handleMobilePointerDown(pointer) {
+        if (!this.mobileControlsEnabled || pointer.pointerType === 'mouse') return;
+
+        if (this.mobileJumpBounds && Phaser.Geom.Rectangle.Contains(this.mobileJumpBounds, pointer.x, pointer.y)) {
+            this.mobileInput.jumpQueued = true;
+            this.mobileJumpPointers.add(pointer.id);
+            this.mobileJumpButton?.setAlpha(0.55);
+            return;
+        }
+
+        if (pointer.y < this.mobileControlActivationY) return;
+
+        const direction = pointer.x < this.mobileScreenWidth / 2 ? 'left' : 'right';
+        this.mobileMovementPointers.set(pointer.id, direction);
+        this.updateMobileMovementState();
+    }
+
+    handleMobilePointerUp(pointer) {
+        if (!this.mobileControlsEnabled || pointer.pointerType === 'mouse') return;
+
+        if (this.mobileJumpPointers.has(pointer.id)) {
+            this.mobileJumpPointers.delete(pointer.id);
+            if (this.mobileJumpPointers.size === 0) {
+                this.mobileJumpButton?.setAlpha(0.35);
+            }
+            return;
+        }
+
+        if (this.mobileMovementPointers.has(pointer.id)) {
+            this.mobileMovementPointers.delete(pointer.id);
+            this.updateMobileMovementState();
+        }
+    }
+
+    handleMobilePointerMove(pointer) {
+        if (!this.mobileControlsEnabled || !pointer.isDown || pointer.pointerType === 'mouse') return;
+        if (this.mobileJumpPointers.has(pointer.id)) return;
+        if (!this.mobileMovementPointers.has(pointer.id)) return;
+
+        if (pointer.y < this.mobileControlActivationY) {
+            this.mobileMovementPointers.delete(pointer.id);
+            this.updateMobileMovementState();
+            return;
+        }
+
+        const direction = pointer.x < this.mobileScreenWidth / 2 ? 'left' : 'right';
+        const prev = this.mobileMovementPointers.get(pointer.id);
+        if (prev !== direction) {
+            this.mobileMovementPointers.set(pointer.id, direction);
+            this.updateMobileMovementState();
+        }
+    }
+
+    updateMobileMovementState() {
+        const directions = Array.from(this.mobileMovementPointers.values());
+        this.mobileInput.left = directions.includes('left');
+        this.mobileInput.right = directions.includes('right');
+    }
+
+    disposeMobileControls() {
+        if (!this.mobileControlsInitialized) return;
+
+        this.input.off('pointerdown', this._mobilePointerDownHandler, this);
+        this.input.off('pointerup', this._mobilePointerUpHandler, this);
+        this.input.off('pointerupoutside', this._mobilePointerUpOutsideHandler, this);
+        this.input.off('pointermove', this._mobilePointerMoveHandler, this);
+
+        this.mobileJumpButton?.destroy();
+        this.mobileJumpText?.destroy();
+        this.mobileJumpButton = null;
+        this.mobileJumpText = null;
+        this.mobileJumpBounds = null;
+        this.mobileMovementPointers?.clear();
+        this.mobileJumpPointers?.clear();
+        this.mobileControlsInitialized = false;
+    }
+
+    consumeMobileJump() {
+        if (!this.mobileInput.jumpQueued) return false;
+        this.mobileInput.jumpQueued = false;
+        return true;
+    }
+
+    getMovementInput() {
+        const leftKey = this.cursors?.left?.isDown || false;
+        const rightKey = this.cursors?.right?.isDown || false;
+        const jumpKey = (this.cursors?.up?.isDown || false) || (this.cursors?.space?.isDown || false);
+
+        return {
+            left: leftKey || this.mobileInput.left,
+            right: rightKey || this.mobileInput.right,
+            jump: jumpKey || this.consumeMobileJump()
+        };
+    }
+
+    setupMultiplayerSupport() {
+        this.cleanupMultiplayerSupport();
+        if (!multiplayer.isInRoom()) return;
+
+        const unsubPlayers = multiplayer.on('room:players', (players) => this.syncRemotePlayers(players));
+        const unsubEvents = multiplayer.on('room:event', (event) => this.handleRemoteEvent(event));
+        const unsubMetadata = multiplayer.on('player:metadata', ({ id }) => this.refreshRemoteAppearance(id));
+        this.multiplayerCleanup = [unsubPlayers, unsubEvents, unsubMetadata];
+
+        this.syncRemotePlayers(multiplayer.getPlayers());
+        const meta = { character: this.character, currentLevel: this.scene?.key };
+        multiplayer.setLocalMetadata(meta);
+
+        stateSync.attach(this, () => this.snapshotLocalPlayer(), (payload) => this.applyRemoteState(payload.id, payload));
+
+        this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.cleanupMultiplayerSupport());
+    }
+
+    attachLocalPlayerLabel() {
+        if (!this.player) return;
+        const localId = multiplayer.getLocalId();
+        const metadata = localId ? multiplayer.getPlayerMetadata(localId) : {} ;
+        const displayName = metadata.name || multiplayer.localName || 'You';
+        if (this.localNameLabel) {
+            this.localNameLabel.destroy();
+        }
+        this.localNameLabel = this.add.text(this.player.x, this.player.y - 40, displayName, {
+            fontSize: '16px',
+            fill: '#f8fafc',
+            stroke: '#000000',
+            strokeThickness: 3
+        }).setOrigin(0.5).setDepth(5);
+        this.localNameLabel.setScrollFactor(1, 1);
+    }
+
+    updateLocalNameLabel() {
+        if (!this.localNameLabel || !this.player) return;
+        this.localNameLabel.setPosition(this.player.x, this.player.y - 40);
+    }
+
+    updatePlayerListDisplay(players = multiplayer.getPlayers()) {
+        if (!players || !players.length) {
+            this.playerListText?.setVisible(false);
+            return;
+        }
+        if (!this.playerListText) {
+            this.playerListText = this.add.text(16, 140, '', {
+                fontSize: '16px',
+                fill: '#e0f2fe',
+                backgroundColor: 'rgba(0,0,0,0.4)',
+                padding: { x: 10, y: 8 }
+            }).setScrollFactor(0).setDepth(1002);
+        }
+        const lines = players.map((p, index) => {
+            const name = this.getDisplayNameForId(p.id) || p.name || `Player ${index + 1}`;
+            const prefix = p.isHost ? '★ ' : '• ';
+            return `${prefix}${name}`;
+        });
+        this.playerListText.setText(['Players:'].concat(lines));
+        this.playerListText.setVisible(true);
+    }
+
+    getDisplayNameForId(id) {
+        if (!id) return '';
+        const metadata = multiplayer.getPlayerMetadata(id);
+        if (metadata?.name) return metadata.name;
+        const players = multiplayer.getPlayers() || [];
+        const record = players.find((p) => p.id === id);
+        return record?.name || '';
+    }
+
+    cleanupMultiplayerSupport() {
+        this.multiplayerCleanup.forEach((off) => off?.());
+        this.multiplayerCleanup = [];
+        this.remotePlayers.forEach(({ sprite, label }) => {
+            sprite?.destroy();
+            label?.destroy();
+        });
+        this.remotePlayers.clear();
+        this.localNameLabel?.destroy();
+        this.localNameLabel = null;
+        this.playerListText?.destroy();
+        this.playerListText = null;
+        stateSync.detach();
+    }
+
+    handleRemoteEvent(event) {
+        if (!event || event.from === multiplayer.getLocalId()) return;
+        if (event.type === 'player:update') {
+            this.applyRemoteState(event.from, event.payload);
+        } else if (event.type === 'player:metadata') {
+            this.refreshRemoteAppearance(event.from);
+        }
+    }
+
+    syncRemotePlayers(players = []) {
+        if (!players.length) {
+            this.remotePlayers.forEach(({ sprite, label }) => {
+                sprite?.destroy();
+                label?.destroy();
+            });
+            this.remotePlayers.clear();
+            this.updatePlayerListDisplay([]);
+            return;
+        }
+
+        const remoteIds = new Set();
+        const localId = multiplayer.getLocalId();
+        players.forEach((player) => {
+            if (player.id === localId) {
+                multiplayer.updateMetadata(player.id, { name: player.name });
+                return;
+            }
+            remoteIds.add(player.id);
+            multiplayer.updateMetadata(player.id, { name: player.name });
+            if (!this.remotePlayers.has(player.id)) {
+                const avatar = this.spawnRemotePlayer(player.id);
+                if (avatar) {
+                    this.remotePlayers.set(player.id, avatar);
+                }
+            }
+        });
+
+        Array.from(this.remotePlayers.keys()).forEach((id) => {
+            if (!remoteIds.has(id)) {
+                const entry = this.remotePlayers.get(id);
+                entry?.sprite?.destroy();
+                entry?.label?.destroy();
+                this.remotePlayers.delete(id);
+            }
+        });
+
+        this.updatePlayerListDisplay(players);
+
+        if (this.isHost && this.scene?.key && (this.remotePlayers.size || players.length > 1)) {
+            const now = this.time.now;
+            if (!this.lastStartBroadcast || now - this.lastStartBroadcast > 1000) {
+                this.lastStartBroadcast = now;
+                multiplayer.setLocalMetadata({ currentLevel: this.scene.key });
+                multiplayer.broadcast('game:startLevel', { level: this.scene.key });
+            }
+        }
+    }
+
+    spawnRemotePlayer(playerId) {
+        const metadata = multiplayer.getPlayerMetadata(playerId);
+        const texture = this.getCharacterTexture(metadata.character || 'Joy');
+        const x = this.startPosition?.x || 0;
+        const y = this.startPosition?.y || 0;
+        const sprite = this.add.sprite(x, y, texture);
+        sprite.setScale(0.05);
+        sprite.setDepth(4);
+        sprite.setAlpha(0.85);
+        const label = this.add.text(x, y - 40, metadata.name || 'Player', {
+            fontSize: '16px',
+            fill: '#f1f5f9',
+            stroke: '#000000',
+            strokeThickness: 2
+        }).setOrigin(0.5).setDepth(4);
+        return { sprite, label };
+    }
+
+    refreshRemoteAppearance(playerId) {
+        const entry = this.remotePlayers.get(playerId);
+        if (!entry) return;
+        const metadata = multiplayer.getPlayerMetadata(playerId);
+        const texture = this.getCharacterTexture(metadata.character || 'Joy');
+        if (entry.sprite.texture.key !== texture) {
+            entry.sprite.setTexture(texture);
+        }
+        entry.label?.setText(metadata.name || 'Player');
+    }
+
+    applyRemoteState(playerId, state = {}) {
+        const entry = this.remotePlayers.get(playerId);
+        if (!entry) return;
+        if (typeof state.x === 'number' && typeof state.y === 'number') {
+            entry.sprite.setPosition(state.x, state.y);
+            entry.label?.setPosition(state.x, state.y - 40);
+        }
+        if (typeof state.flipX === 'boolean') {
+            entry.sprite.setFlipX(state.flipX);
+        }
+    }
+
+    snapshotLocalPlayer() {
+        if (!this.player) return null;
+        return {
+            id: multiplayer.getLocalId(),
+            x: this.player.x,
+            y: this.player.y,
+            flipX: this.player.flipX
+        };
+    }
+
+    broadcastPlayerState(force = false) {
+        if (!this.player || !multiplayer.isInRoom()) return;
+        stateSync.broadcast(force);
+    }
+
     // Common preload for all levels
     preloadCommon() {
-        this.load.image('arrow', 'assets/images/arrow.png');
+        // No need to preload arrow image, we'll create it programmatically
+    }
+    
+    // Create a simple arrow shape
+    createArrow() {
+        const arrow = this.add.graphics();
+        arrow.fillStyle(0x4CAF50, 0.8); // Green color with some transparency
+        arrow.fillRect(-10, -2, 20, 4); // Simple rectangle as arrow
+        return arrow;
     }
 }

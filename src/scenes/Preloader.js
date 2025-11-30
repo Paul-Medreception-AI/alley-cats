@@ -21,14 +21,7 @@ export default class Preloader extends Phaser.Scene {
             ).setOrigin(0.5);
         });
 
-        // Load assets
-        this.load.image('tiles', 'assets/images/tiles.png');
-        this.load.spritesheet('cat', 'assets/sprites/cat.png', {
-            frameWidth: 32,
-            frameHeight: 32
-        });
-
-        // Character portraits for controllable avatars
+        // Load character portraits for controllable avatars
         this.load.image('character-joy', 'assets/images/Joy.png');
         this.load.image('character-iz', 'assets/images/IzAndLiz.png');
         this.load.image('character-liz', 'assets/images/IzAndLiz.png');

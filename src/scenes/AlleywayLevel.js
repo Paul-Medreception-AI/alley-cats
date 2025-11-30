@@ -98,6 +98,7 @@ export default class AlleywayLevel extends BaseLevel {
         this.setupWorld(width, height);
         addAudioToggle(this, { x: width - 90, y: 110 });
         this.initEditor(width, height);
+        this.setupMobileControls(width, height);
     }
 
     createAlignedBackgrounds(width, height) {
@@ -175,6 +176,14 @@ export default class AlleywayLevel extends BaseLevel {
             padding: { x: 10, y: 6 }
         }).setScrollFactor(0);
 
+        this.scoreText = this.add.text(16, 48, '', {
+            fontSize: '20px',
+            fill: '#fff',
+            backgroundColor: 'rgba(0,0,0,0.6)',
+            padding: { x: 10, y: 6 }
+        }).setScrollFactor(0);
+        this.updateScoreDisplay();
+
         this.statusText = this.add.text(width / 2, height - 40, 'Reach the end platform!', {
             fontSize: '22px',
             fill: '#fff',
@@ -190,6 +199,7 @@ export default class AlleywayLevel extends BaseLevel {
         this.createPlayer();
         this.createFailureZone(width, height);
         this.createGoalZone(width, height);
+        this.setupMultiplayerSupport();
     }
 
     createPlatforms(width, height) {
@@ -241,6 +251,7 @@ export default class AlleywayLevel extends BaseLevel {
         });
         this.cursors = this.input.keyboard.createCursorKeys();
         this.player.setDepth(5);
+        this.attachLocalPlayerLabel();
     }
 
     createFailureZone(width, height) {
@@ -268,20 +279,33 @@ export default class AlleywayLevel extends BaseLevel {
 
     update() {
         if (this.roundEnded) return;
+        
+        // Only process input for the local player
+        if (this.player && this.player.body) {
+            const { left, right, jump } = this.getMovementInput();
+            const speed = 240;
+            
+            // Apply horizontal movement
+            if (left && !right) {
+                this.player.setVelocityX(-speed);
+                this.player.setFlipX(true);
+            } else if (right && !left) {
+                this.player.setVelocityX(speed);
+                this.player.setFlipX(false);
+            } else {
+                this.player.setVelocityX(0);
+            }
 
-        const speed = 240;
-        if (this.cursors.left.isDown) {
-            this.player.setVelocityX(-speed);
-            this.player.setFlipX(true);
-        } else if (this.cursors.right.isDown) {
-            this.player.setVelocityX(speed);
-            this.player.setFlipX(false);
-        } else {
-            this.player.setVelocityX(0);
-        }
+            // Handle jumping
+            if (jump && this.player.body.touching.down) {
+                this.player.setVelocityY(-420);
+            }
 
-        if ((this.cursors.up.isDown || this.cursors.space.isDown) && this.player.body.touching.down) {
-            this.player.setVelocityY(-420);
+            // Update the local player's name label position
+            this.updateLocalNameLabel();
+            
+            // Broadcast the player's state to other players
+            this.broadcastPlayerState();
         }
     }
 
@@ -330,6 +354,7 @@ export default class AlleywayLevel extends BaseLevel {
     restartRound(didWin) {
         if (didWin) {
             this.scores.host = (this.scores.host || 0) + 1;
+            this.updateScoreDisplay();
         } else {
             this.showWinner('No winner this round');
         }
@@ -356,6 +381,15 @@ export default class AlleywayLevel extends BaseLevel {
                 scores: this.scores
             });
         }
+    }
+
+    updateScoreDisplay() {
+        if (!this.scoreText) return;
+        const hostScore = this.scores?.host ?? 0;
+        const opponentScore = this.scores?.opponent ?? 0;
+        const label = this.isHost ? 'You' : 'Host';
+        const rivalLabel = this.isHost ? 'Opponent' : 'Host';
+        this.scoreText.setText(`${label}: ${hostScore} | ${rivalLabel}: ${opponentScore}`);
     }
 
     createDefaultSpawnPoints() {

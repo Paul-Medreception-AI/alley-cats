@@ -1,4 +1,6 @@
 import { addAudioToggle } from '../audioToggleUI.js';
+import { multiplayer } from '../network/multiplayer.js';
+import { getStoredPlayerName, promptForPlayerName } from '../utils/playerName.js';
 
 export default class JoinGame extends Phaser.Scene {
     constructor() {
@@ -15,6 +17,7 @@ export default class JoinGame extends Phaser.Scene {
     create() {
         const { width, height } = this.cameras.main;
         addAudioToggle(this, { x: width - 90, y: 60 });
+        this.ensurePlayerName(true);
 
         this.cameras.main.setBackgroundColor('#0f172a');
 
@@ -26,7 +29,8 @@ export default class JoinGame extends Phaser.Scene {
             strokeThickness: 6
         }).setOrigin(0.5);
 
-        this.add.text(width / 2, 150, 'Ask the host for the 6-digit code and enter it below', {
+        this.codeLength = this.joinCode?.length || 4;
+        this.add.text(width / 2, 150, `Ask the host for the ${this.codeLength}-character code and enter it below`, {
             fontSize: '22px',
             fill: '#cbd5f5'
         }).setOrigin(0.5);
@@ -39,15 +43,15 @@ export default class JoinGame extends Phaser.Scene {
             fill: '#ffffff'
         }).setOrigin(0.5);
 
-        this.instructions = this.add.text(width / 2, height / 2 + 30, 'Tap numbers to enter code', {
+        this.defaultInstructionMessage = 'Type the host code using your keyboard';
+        this.instructions = this.add.text(width / 2, height / 2 + 30, this.defaultInstructionMessage, {
             fontSize: '20px',
             fill: '#94a3b8'
         }).setOrigin(0.5);
 
-        const keypadStartY = height / 2 + 160;
-        this.createKeypad(width / 2, keypadStartY);
+        this.enableKeyboardEntry();
 
-        const joinButton = this.add.text(width / 2, keypadStartY - 70, 'JOIN GAME', {
+        const joinButton = this.add.text(width / 2, height / 2 + 110, 'JOIN GAME', {
             fontSize: '28px',
             fill: '#0f172a',
             backgroundColor: '#67e8f9',
@@ -70,17 +74,12 @@ export default class JoinGame extends Phaser.Scene {
             borderRadius: 8
         }));
 
-        joinButton.on('pointerdown', () => {
-            if (this.codeText.text.length === 6) {
-                this.startCharacterSelect();
-            } else {
-                this.instructions.setText('Code must be 6 digits').setColor('#f87171');
-            }
-        });
+        joinButton.on('pointerdown', () => this.tryJoin());
 
         if (this.joinCode) {
-            this.codeText.setText(this.joinCode);
-            if (this.joinCode.length === 6) {
+            const normalized = this.joinCode.toUpperCase();
+            this.codeText.setText(normalized);
+            if (normalized.length === this.codeLength) {
                 this.instructions.setText('Ready to join!').setColor('#22c55e');
             }
         }
@@ -113,57 +112,86 @@ export default class JoinGame extends Phaser.Scene {
         });
     }
 
-    createKeypad(centerX, startY) {
-        const digits = [
-            ['1', '2', '3'],
-            ['4', '5', '6'],
-            ['7', '8', '9'],
-            ['DEL', '0', 'CLR']
-        ];
-
-        const buttonStyle = {
-            fontSize: '26px',
-            fill: '#0f172a',
-            backgroundColor: '#e2e8f0',
-            padding: { x: 28, y: 16 },
-            borderRadius: 6
-        };
-
-        digits.forEach((row, rowIndex) => {
-            row.forEach((value, colIndex) => {
-                const btn = this.add.text(
-                    centerX + (colIndex - 1) * 150,
-                    startY + rowIndex * 80,
-                    value,
-                    buttonStyle
-                ).setOrigin(0.5).setInteractive({ useHandCursor: true });
-
-                btn.on('pointerover', () => btn.setStyle({
-                    ...buttonStyle,
-                    backgroundColor: '#67e8f9'
-                }));
-                btn.on('pointerout', () => btn.setStyle(buttonStyle));
-                btn.on('pointerdown', () => this.onKeypadPress(value));
-            });
+    enableKeyboardEntry() {
+        this.input.keyboard.on('keydown', this.handleKeyboardInput, this);
+        this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+            this.input.keyboard.off('keydown', this.handleKeyboardInput, this);
         });
     }
 
     onKeypadPress(value) {
         if (value === 'DEL') {
             this.codeText.setText(this.codeText.text.slice(0, -1));
-            this.instructions.setText('Tap numbers to enter code').setColor('#94a3b8');
+            this.instructions.setText(this.defaultInstructionMessage).setColor('#94a3b8');
         } else if (value === 'CLR') {
             this.codeText.setText('');
-            this.instructions.setText('Tap numbers to enter code').setColor('#94a3b8');
-        } else if (this.codeText.text.length < 6) {
-            this.codeText.setText(this.codeText.text + value);
-            if (this.codeText.text.length === 6) {
+            this.instructions.setText(this.defaultInstructionMessage).setColor('#94a3b8');
+        } else if (this.codeText.text.length < this.codeLength) {
+            this.codeText.setText((this.codeText.text + value.toUpperCase()));
+            if (this.codeText.text.length === this.codeLength) {
                 this.instructions.setText('Ready to join!').setColor('#22c55e');
             }
         }
     }
 
-    startCharacterSelect() {
+    handleKeyboardInput(event) {
+        if (event.key === 'Backspace') {
+            this.onKeypadPress('DEL');
+            event.preventDefault();
+            return;
+        }
+
+        if (event.key === 'Delete') {
+            this.onKeypadPress('CLR');
+            event.preventDefault();
+            return;
+        }
+
+        if (event.key === 'Enter') {
+            this.tryJoin();
+            event.preventDefault();
+            return;
+        }
+
+        if (/^[0-9a-zA-Z]$/.test(event.key)) {
+            this.onKeypadPress(event.key.toUpperCase());
+            event.preventDefault();
+        }
+    }
+
+    async tryJoin() {
+        const code = this.codeText.text.toUpperCase();
+        if (code.length !== this.codeLength) {
+            this.instructions.setText(`Code must be ${this.codeLength} characters`).setColor('#f87171');
+            return;
+        }
+
+        this.instructions.setText('Connecting...').setColor('#93c5fd');
+        try {
+            const stored = getStoredPlayerName();
+            const finalName = stored || promptForPlayerName(multiplayer.localName);
+            if (finalName) {
+                multiplayer.setDisplayName(finalName);
+                multiplayer.setLocalMetadata({ name: finalName });
+            }
+            await multiplayer.ensureConnection();
+            await multiplayer.joinRoom(code);
+            this.instructions.setText('Connected!').setColor('#22c55e');
+            this.startCharacterSelect();
+        } catch (error) {
+            console.error('[JoinGame] join failed', error);
+            this.instructions.setText(`Unable to join (${error.message})`).setColor('#f87171');
+        }
+    }
+
+        ensurePlayerName() {
+        const chosen = promptForPlayerName(multiplayer.localName);
+        multiplayer.setDisplayName(chosen);
+        multiplayer.setLocalMetadata({ name: chosen });
+        return chosen;
+    }
+
+startCharacterSelect() {
         this.cameras.main.fadeOut(250, 0, 0, 0);
         this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => {
             this.scene.start('CharacterSelect', { 

@@ -1,4 +1,6 @@
 import { addAudioToggle } from '../audioToggleUI.js';
+import { multiplayer } from '../network/multiplayer.js';
+import { getStoredPlayerName, promptForPlayerName } from '../utils/playerName.js';
 
 export default class HostOrJoin extends Phaser.Scene {
     constructor() {
@@ -56,15 +58,19 @@ export default class HostOrJoin extends Phaser.Scene {
         };
 
         createButton('HOST', width / 2, height / 2 - 20, () => {
-            const code = this.joinCode || this.generateHostCode();
-            this.joinCode = code;
-            this.startCharacterSelect('host', code);
+            this.handleHostFlow();
         });
 
         createButton('JOIN A GAME BY ENTERING GAME CODE', width / 2, height / 2 + 100, () => {
             this.startJoinFlow();
         });
 
+        this.statusText = this.add.text(width / 2, height - 80, '', {
+            fontSize: '20px',
+            fill: '#f8fafc'
+        }).setOrigin(0.5);
+
+        this.ensurePlayerName();
         // back to mode select if needed
         const backButton = this.add.text(40, height - 60, 'BACK', {
             fontSize: '24px',
@@ -89,6 +95,31 @@ export default class HostOrJoin extends Phaser.Scene {
         backButton.on('pointerdown', () => {
             this.scene.start('GameModeSelect');
         });
+    }
+
+    ensurePlayerName(forcePrompt = false) {
+        const stored = getStoredPlayerName();
+        const finalName = forcePrompt || !stored ? promptForPlayerName(multiplayer.localName) : stored;
+        if (finalName) {
+            multiplayer.setDisplayName(finalName);
+            multiplayer.setLocalMetadata({ name: finalName });
+        }
+        return finalName;
+    }
+
+    async handleHostFlow() {
+        this.ensurePlayerName();
+        this.statusText.setText('Connecting to lobby server...').setColor('#93c5fd');
+        try {
+            await multiplayer.ensureConnection();
+            const response = await multiplayer.createRoom();
+            this.joinCode = response.roomCode;
+            this.statusText.setText(`Room created: ${response.roomCode}`).setColor('#22c55e');
+            this.startCharacterSelect('host', response.roomCode);
+        } catch (error) {
+            console.error('[HostOrJoin] Failed to create room', error);
+            this.statusText.setText(`Unable to create room (${error.message})`).setColor('#f87171');
+        }
     }
 
     startCharacterSelect(connectionType, code = null) {

@@ -74,21 +74,25 @@ export default class HomeScene extends Phaser.Scene {
         }).setOrigin(0.5).setInteractive();
 
         // Add controls information near bottom of screen
-        this.add.text(width / 2, height - 60, 'CONTROLS', {
-            fontSize: '20px',
-            fill: '#4cc9f0',
-            fontStyle: 'bold',
-            stroke: '#fff',
-            strokeThickness: 1
-        }).setOrigin(0.5);
-
-        this.add.text(width / 2, height - 30, '← → : Move   ↑ or SPACE : Jump', {
-            fontSize: '18px',
+        const isMobile = this.sys.game.device.input.touch;
+        const controlsText = isMobile 
+            ? 'Touch left/right to move\nTap JUMP button to jump'
+            : '← → : Move   ↑ or SPACE : Jump';
+            
+        this.add.text(width / 2, height - 80, 'CONTROLS', { 
+            fontSize: '24px', 
             fill: '#fff',
             fontStyle: 'bold',
-            backgroundColor: 'rgba(0,0,0,0.5)',
-            padding: { x: 15, y: 6 },
-            borderRadius: 5
+            stroke: '#000',
+            strokeThickness: 4
+        }).setOrigin(0.5);
+        
+        this.add.text(width / 2, height - 40, controlsText, { 
+            fontSize: '20px', 
+            fill: '#fff',
+            stroke: '#000',
+            strokeThickness: 3,
+            align: 'center'
         }).setOrigin(0.5);
 
         // Button hover effects

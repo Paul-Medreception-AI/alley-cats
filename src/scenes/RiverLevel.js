@@ -83,6 +83,8 @@ export default class RiverLevel extends BaseLevel {
 
         // Initialize editor
         this.initEditor(width, height);
+        this.setupMultiplayerSupport();
+        this.setupMobileControls(width, height);
         this.startBackgroundAnimation();
     }
 
@@ -122,6 +124,7 @@ export default class RiverLevel extends BaseLevel {
         this.player.body.setSize(bodyWidth, bodyHeight);
         this.player.body.setOffset((this.player.width - bodyWidth) / 2, this.player.height * 0.5);
         this.physics.add.collider(this.player, this.platforms);
+        this.attachLocalPlayerLabel();
     }
 
     createGoal(width, height) {
@@ -178,19 +181,23 @@ export default class RiverLevel extends BaseLevel {
 
     update() {
         if (this.roundEnded) return;
+        const { left, right, jump } = this.getMovementInput();
         const speed = 230;
-        if (this.cursors.left.isDown) {
+        if (left && !right) {
             this.player.setVelocityX(-speed);
             this.player.setFlipX(true);
-        } else if (this.cursors.right.isDown) {
+        } else if (right && !left) {
             this.player.setVelocityX(speed);
             this.player.setFlipX(false);
         } else {
             this.player.setVelocityX(0);
         }
-        if ((this.cursors.up.isDown || this.cursors.space.isDown) && this.player.body.touching.down) {
+        if (jump && this.player.body.touching.down) {
             this.player.setVelocityY(-420);
         }
+
+        this.updateLocalNameLabel();
+        this.broadcastPlayerState();
     }
 
     handleFall() {
